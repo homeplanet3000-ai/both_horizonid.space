@@ -1,0 +1,274 @@
+import time
+import datetime
+from aiogram import Router, F
+from aiogram.types import Message, CallbackQuery
+from aiogram.filters import CommandStart, CommandObject, Command
+
+from database import db
+from services.marzban import marzban_api
+from keyboards import reply, inline
+from config import TRIAL_DAYS, TRIAL_LIMIT_BYTES, ADMIN_ID
+from utils.misc import generate_qr
+
+user_router = Router()
+
+# ==========================================
+# 🚀 START & MAIN MENU
+# ==========================================
+
+@user_router.message(CommandStart())
+async def cmd_start(message: Message, command: CommandObject):
+    user_id = message.from_user.id
+    username = message.from_user.username or "Unknown"
+    full_name = message.from_user.full_name
+    
+    referrer_id = 0
+    args = command.args
+    if args and args.isdigit():
+        candidate_id = int(args)
+        if candidate_id != user_id:
+            referrer_id = candidate_id
+
+    # БД создаст запись, если юзера нет
+    await db.add_user(user_id, username, full_name, referrer_id)
+    
+    text = (
+        f"👋 <b>Привет, {full_name}!</b>\n\n"
+        f"🌐 <b>Horizon VPN</b> — это свобода, скорость и анонимность.\n"
+        f"Мы используем протоколы <b>VLESS + Reality</b>, которые невозможно отследить.\n\n"
+        f"👇 <b>Что вы хотите сделать?</b>"
+    )
+    
+    await message.answer(text, reply_markup=reply.main_menu(user_id), parse_mode="HTML")
+
+# ==========================================
+# 👤 USER PROFILE
+# ==========================================
+
+@user_router.message(F.text == "👤 Мой профиль")
+async def show_profile(message: Message):
+    user_id = message.from_user.id
+    user = await db.get_user(user_id)
+    
+    if not user:
+        await message.answer("⚠️ Ошибка профиля. Нажмите /start")
+        return
+
+    # Защита от пустых значений
+    sub_expire = user['sub_expire'] if user['sub_expire'] is not None else 0
+    balance = user['balance'] if user['balance'] is not None else 0.0
+    now = int(time.time())
+    
+    if sub_expire > now:
+        # --- ПОДПИСКА АКТИВНА ---
+        key_link = await marzban_api.create_or_update_user(user_id, 0)
+        expire_date = datetime.datetime.fromtimestamp(sub_expire).strftime('%d.%m.%Y %H:%M')
+        
+        text = (
+            f"👤 <b>Личный кабинет</b>\n"
+            f"➖➖➖➖➖➖➖➖➖➖\n"
+            f"🆔 ID: <code>{user_id}</code>\n"
+            f"💰 Баланс: <b>{balance:.2f} ₽</b>\n"
+            f"✅ <b>Подписка активна до:</b> {expire_date}\n\n"
+            f"🔑 <b>Ваш ключ доступа:</b>\n"
+            f"<code>{key_link}</code>\n\n"
+            f"<i>Нажмите на ключ, чтобы скопировать.</i>"
+        )
+        
+        qr_file = generate_qr(key_link) if key_link else None
+        
+        if qr_file:
+            await message.answer_photo(
+                photo=qr_file,
+                caption=text,
+                parse_mode="HTML",
+                reply_markup=inline.profile_menu(sub_active=True)
+            )
+        else:
+            await message.answer(text, parse_mode="HTML", reply_markup=inline.profile_menu(sub_active=True))
+            
+    else:
+        # --- ПОДПИСКА НЕ АКТИВНА ---
+        text = (
+            f"👤 <b>Личный кабинет</b>\n"
+            f"➖➖➖➖➖➖➖➖➖➖\n"
+            f"🆔 ID: <code>{user_id}</code>\n"
+            f"💰 Баланс: <b>{balance:.2f} ₽</b>\n"
+            f"🔴 <b>Статус:</b> Нет активной подписки\n\n"
+            f"🎁 Вы можете попробовать <b>бесплатный период</b> или купить подписку."
+        )
+        await message.answer(text, parse_mode="HTML", reply_markup=inline.profile_menu(sub_active=False))
+
+# ==========================================
+# 🎁 TRIAL
+# ==========================================
+
+@user_router.callback_query(F.data == "get_trial")
+async def activate_trial(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    user = await db.get_user(user_id)
+    
+    trial_used = user['trial_used'] if user['trial_used'] is not None else 0
+    sub_expire = user['sub_expire'] if user['sub_expire'] is not None else 0
+
+    if trial_used == 1:
+        await callback.answer("⚠️ Вы уже использовали пробный период!", show_alert=True)
+        return
+    
+    if sub_expire > int(time.time()):
+        await callback.answer("✅ У вас уже есть активная подписка!", show_alert=True)
+        return
+
+    await callback.message.answer("⏳ <b>Активирую тестовый доступ...</b>", parse_mode="HTML")
+    
+    key_link = await marzban_api.create_or_update_user(user_id, TRIAL_LIMIT_BYTES)
+    
+    if not key_link:
+        await callback.message.answer("❌ Ошибка сервера VPN. Попробуйте позже.")
+        return
+
+    new_expire = int(time.time()) + (TRIAL_DAYS * 86400)
+    
+    async with db.get_db() as conn:
+        await conn.execute(
+            "UPDATE users SET sub_expire = ?, trial_used = 1 WHERE user_id = ?", 
+            (new_expire, user_id)
+        )
+        await conn.commit()
+    
+    text = (
+        f"🎁 <b>Тестовый период активирован!</b>\n"
+        f"⏳ Срок: <b>{TRIAL_DAYS} день</b>\n"
+        f"📊 Лимит: <b>1 ГБ</b>\n\n"
+        f"🔑 <b>Ваш ключ:</b>\n<code>{key_link}</code>"
+    )
+    qr_file = generate_qr(key_link)
+    
+    await callback.message.delete()
+    await callback.message.answer_photo(
+        qr_file, 
+        caption=text, 
+        parse_mode="HTML",
+        reply_markup=inline.profile_menu(sub_active=True)
+    )
+
+# ==========================================
+# 📚 INSTRUCTIONS & INFO
+# ==========================================
+
+@user_router.message(F.text == "📱 Инструкция")
+async def show_instructions_main(message: Message):
+    await message.answer("👇 <b>Выберите ваше устройство:</b>", reply_markup=inline.instructions_menu(), parse_mode="HTML")
+
+@user_router.callback_query(F.data == "instr_main")
+async def show_instructions_cb(callback: CallbackQuery):
+    if callback.message.photo:
+        await callback.message.delete()
+        await callback.message.answer("👇 <b>Выберите ваше устройство:</b>", reply_markup=inline.instructions_menu(), parse_mode="HTML")
+    else:
+        await callback.message.edit_text("👇 <b>Выберите ваше устройство:</b>", reply_markup=inline.instructions_menu(), parse_mode="HTML")
+
+@user_router.callback_query(F.data.startswith("instr_"))
+async def show_device_instruction(callback: CallbackQuery):
+    device = callback.data.split("_")[1]
+    
+    texts = {
+        "ios": (
+            "🍏 <b>Инструкция для iOS (iPhone / iPad)</b>\n\n"
+            "1️⃣ <b>Скачайте приложение:</b>\n"
+            "• <a href='https://apps.apple.com/us/app/v2box-v2ray-client/id6446814690'>V2Box</a> (Рекомендуем ✅)\n"
+            "• Или <i>Streisand</i> / <i>Shadowrocket</i> ($).\n\n"
+            "2️⃣ <b>Скопируйте ключ</b> доступа в боте.\n"
+            "3️⃣ Откройте <b>V2Box</b>. Приложение предложит добавить ключ. Нажмите <b>Import</b>.\n"
+            "4️⃣ Нажмите переключатель для соединения. Готово! 🚀"
+        ),
+        "android": (
+            "🤖 <b>Инструкция для Android</b>\n\n"
+            "1️⃣ <b>Скачайте приложение:</b>\n"
+            "• <a href='https://play.google.com/store/apps/details?id=com.v2ray.ang'>v2rayNG</a> (Google Play)\n"
+            "• Или <a href='https://github.com/hiddify/hiddify-next/releases'>Hiddify Next</a>.\n\n"
+            "2️⃣ <b>Скопируйте ключ</b> в боте.\n"
+            "3️⃣ Откройте <b>v2rayNG</b>, нажмите ➕ → <b>Импорт из буфера</b>.\n"
+            "4️⃣ Нажмите кнопку <b>V</b> (подключиться). Готово! 🚀"
+        ),
+        "win": (
+            "💻 <b>Инструкция для Windows</b>\n\n"
+            "1️⃣ Скачайте <b>Hiddify Next</b>:\n"
+            "<a href='https://github.com/hiddify/hiddify-next/releases/latest'>🔗 Скачать с GitHub (Setup.exe)</a>\n\n"
+            "2️⃣ Установите и запустите.\n"
+            "3️⃣ Скопируйте ключ. В программе нажмите <b>+</b> → <b>Add from Clipboard</b>.\n"
+            "4️⃣ Нажмите большую кнопку <b>Connect</b>. 🌍"
+        ),
+        "mac": (
+            "🍎 <b>Инструкция для macOS</b>\n\n"
+            "1️⃣ Скачайте <b>V2Box</b> из AppStore.\n"
+            "2️⃣ Скопируйте ключ доступа в боте.\n"
+            "3️⃣ Откройте приложение, подтвердите импорт.\n"
+            "4️⃣ Запустите подключение переключателем."
+        )
+    }
+    
+    text = texts.get(device, "Ошибка выбора устройства.")
+    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=inline.back_btn("instr_main"), disable_web_page_preview=True)
+
+@user_router.message(F.text == "🤝 Партнерка")
+async def show_referral(message: Message):
+    user_id = message.from_user.id
+    bot_info = await message.bot.get_me()
+    ref_link = f"https://t.me/{bot_info.username}?start={user_id}"
+    
+    async with db.get_db() as conn:
+        cursor = await conn.execute("SELECT COUNT(*) FROM users WHERE referrer_id = ?", (user_id,))
+        count_res = await cursor.fetchone()
+        ref_count = count_res[0] if count_res else 0
+        
+        cursor = await conn.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
+        bal_res = await cursor.fetchone()
+        balance = bal_res[0] if bal_res else 0.0
+
+    text = (
+        f"🤝 <b>Партнерская программа</b>\n\n"
+        f"Приглашайте друзей и получайте <b>10%</b> от их пополнений!\n\n"
+        f"🔗 <b>Ваша ссылка:</b>\n<code>{ref_link}</code>\n\n"
+        f"📊 <b>Статистика:</b>\n"
+        f"👥 Приглашено: <b>{ref_count} чел.</b>\n"
+        f"💰 Ваш баланс: <b>{balance:.2f} ₽</b>"
+    )
+    
+    await message.answer(text, parse_mode="HTML", reply_markup=inline.back_btn("close"))
+
+@user_router.callback_query(F.data == "referral_info")
+async def show_referral_cb(callback: CallbackQuery):
+    await callback.message.delete()
+    await show_referral(callback.message)
+
+@user_router.callback_query(F.data == "rules")
+async def show_rules(callback: CallbackQuery):
+    text = (
+        "📜 <b>ПОЛЬЗОВАТЕЛЬСКОЕ СОГЛАШЕНИЕ (ОФЕРТА)</b>\n\n"
+        "<b>1. Общие положения</b>\n"
+        "1.1. Оплачивая услуги, вы соглашаетесь с правилами.\n\n"
+        "<b>2. Запреты</b>\n"
+        "⛔️ Спам, кардинг, DDOS, распространение вредоносного ПО.\n"
+        "⛔️ Передача ключей третьим лицам.\n"
+        "⛔️ Превышение лимита устройств (макс. 2).\n\n"
+        "<b>3. Возврат</b>\n"
+        "Возврат только при тех. неисправности в течение 24ч."
+    )
+    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=inline.back_btn("open_tariffs"))
+
+@user_router.message(F.text == "🆘 Поддержка")
+async def support_info(message: Message):
+    text = (
+        "📬 <b>Техническая поддержка</b>\n\n"
+        "Вопросы по оплате или настройке:\n\n"
+        "👨‍💻 Админ: @ITENZORU\n"
+        "⏰ Время работы: 10:00 - 22:00 (МСК)"
+    )
+    await message.answer(text, parse_mode="HTML")
+
+@user_router.callback_query(F.data == "close")
+async def close_msg(callback: CallbackQuery):
+    try:
+        await callback.message.delete()
+    except: pass
