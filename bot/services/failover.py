@@ -1,14 +1,15 @@
 import logging
-import os
 
 import aiohttp
 
-logger = logging.getLogger(__name__)
+from config import (
+    CLOUDFLARE_API_TOKEN,
+    CLOUDFLARE_DNS_NAME,
+    CLOUDFLARE_RECORD_ID,
+    CLOUDFLARE_ZONE_ID,
+)
 
-CLOUDFLARE_API_TOKEN = os.getenv("CLOUDFLARE_API_TOKEN")
-CLOUDFLARE_ZONE_ID = os.getenv("CLOUDFLARE_ZONE_ID")
-CLOUDFLARE_RECORD_ID = os.getenv("CLOUDFLARE_RECORD_ID")
-CLOUDFLARE_DNS_NAME = os.getenv("CLOUDFLARE_DNS_NAME")
+logger = logging.getLogger(__name__)
 
 
 async def update_dns(target_ip: str):

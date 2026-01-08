@@ -26,7 +26,7 @@ services:
     restart: always
     network_mode: host
     environment:
-      MARIADB_ROOT_PASSWORD: RootSuperPassword123
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
       MARIADB_DATABASE: marzban
       MARIADB_USER: marzban
       MARIADB_PASSWORD: ${DB_PASSWORD}
