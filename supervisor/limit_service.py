@@ -1,0 +1,206 @@
+import time
+import re
+import os
+import sqlite3
+import requests
+import datetime
+import threading
+from loguru import logger
+from dotenv import load_dotenv
+
+# Загружаем настройки
+load_dotenv("/opt/marzban/.env")
+
+# --- КОНФИГУРАЦИЯ ---
+LOG_FILE = "/var/lib/marzban/access.log"
+DB_FILE = "/app/policeman.db"
+PANEL_URL = "http://marzban:8000" # Внутренний адрес в Docker
+ADMIN_USER = os.getenv("SUDO_USERNAME")
+ADMIN_PASS = os.getenv("SUDO_PASSWORD")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+
+# Правила
+WINDOW_SECONDS = 600  # 10 минут
+MAX_IPS = 2           # Больше 2-х (то есть 3 и выше) = Нарушение
+BAN_TIME = 3600       # 1 час (в секундах)
+MAX_STRIKES = 3       # 3 нарушения = Вечный бан
+
+# Хранилище в памяти: { 'user_id': [ (ip, timestamp), ... ] }
+active_sessions = {}
+
+# --- БАЗА ДАННЫХ (Для истории нарушений) ---
+def init_db():
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS violations (
+                username TEXT PRIMARY KEY,
+                strikes INTEGER DEFAULT 0,
+                last_ban_time INTEGER DEFAULT 0
+            )
+        """)
+
+def add_strike(username):
+    """Добавляет нарушение и возвращает их количество"""
+    with sqlite3.connect(DB_FILE) as conn:
+        cur = conn.execute("SELECT strikes FROM violations WHERE username = ?", (username,))
+        row = cur.fetchone()
+        strikes = (row[0] + 1) if row else 1
+        
+        conn.execute("""
+            INSERT INTO violations (username, strikes, last_ban_time) 
+            VALUES (?, ?, ?) 
+            ON CONFLICT(username) DO UPDATE SET 
+                strikes = strikes + 1,
+                last_ban_time = ?
+        """, (username, strikes, int(time.time()), int(time.time())))
+        return strikes
+
+# --- API MARZBAN ---
+def get_token():
+    try:
+        resp = requests.post(f"{PANEL_URL}/api/admin/token", data={
+            "username": ADMIN_USER, "password": ADMIN_PASS
+        })
+        if resp.status_code == 200:
+            return resp.json().get("access_token")
+    except Exception as e:
+        logger.error(f"Login failed: {e}")
+    return None
+
+def ban_user(username, reason_msg):
+    token = get_token()
+    if not token: return
+    
+    headers = {"Authorization": f"Bearer {token}"}
+    # Ставим статус disabled
+    requests.put(f"{PANEL_URL}/api/user/{username}", json={"status": "disabled"}, headers=headers)
+    
+    # Шлем уведомление в Telegram
+    try:
+        tg_id = username.replace("user_", "")
+        requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
+            "chat_id": tg_id,
+            "text": reason_msg,
+            "parse_mode": "HTML"
+        })
+    except:
+        pass
+
+def unban_user(username):
+    token = get_token()
+    if not token: return
+    headers = {"Authorization": f"Bearer {token}"}
+    # Возвращаем active
+    requests.put(f"{PANEL_URL}/api/user/{username}", json={"status": "active"}, headers=headers)
+    
+    try:
+        tg_id = username.replace("user_", "")
+        requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
+            "chat_id": tg_id,
+            "text": "✅ <b>Доступ восстановлен!</b>\nПожалуйста, соблюдайте правила (макс 2 устройства).",
+            "parse_mode": "HTML"
+        })
+    except:
+        pass
+
+# --- ФОНОВЫЙ ПРОЦЕСС РАЗБАНА ---
+def unban_worker():
+    while True:
+        time.sleep(60)
+        now = int(time.time())
+        with sqlite3.connect(DB_FILE) as conn:
+            # Ищем тех, кого пора разбанить (если страйков < 3)
+            cursor = conn.execute(
+                "SELECT username FROM violations WHERE last_ban_time < ? AND strikes < ?", 
+                (now - BAN_TIME, MAX_STRIKES)
+            )
+            users_to_unban = cursor.fetchall()
+            
+            for (user,) in users_to_unban:
+                # Проверяем, забанен ли он сейчас, чтобы не спамить
+                # (Упрощенно просто шлем разбан)
+                logger.info(f"Разбаниваю {user}...")
+                unban_user(user)
+                # Сбрасываем время бана, чтобы не разбанить снова
+                conn.execute("UPDATE violations SET last_ban_time = 0 WHERE username = ?", (user,))
+
+# --- ОСНОВНОЙ ЛОГЕР ---
+def tail_logs():
+    logger.info("👮‍♂️ Надзиратель заступил на смену...")
+    
+    # Открываем файл и идем в конец
+    f = open(LOG_FILE, "r")
+    f.seek(0, 2)
+    
+    while True:
+        line = f.readline()
+        if not line:
+            time.sleep(0.1)
+            continue
+            
+        # Парсим строку лога Xray
+        # Пример: ... email: user_12345 ... 192.168.1.1:54321
+        if "email:" in line and "accepted" in line:
+            try:
+                # Извлекаем email (user_id)
+                user = re.search(r'email:\s+(\S+)', line).group(1)
+                # Извлекаем IP (первая часть адреса tcp:...)
+                ip_match = re.search(r'tcp:(\d+\.\d+\.\d+\.\d+)', line)
+                if not ip_match: continue
+                ip = ip_match.group(1)
+                
+                now = time.time()
+                
+                # Инициализация
+                if user not in active_sessions:
+                    active_sessions[user] = []
+                
+                # Добавляем IP
+                active_sessions[user].append((ip, now))
+                
+                # Очистка старых записей (> 10 минут)
+                active_sessions[user] = [
+                    (i, t) for (i, t) in active_sessions[user] 
+                    if now - t < WINDOW_SECONDS
+                ]
+                
+                # Считаем уникальные IP
+                unique_ips = set(i for i, t in active_sessions[user])
+                
+                if len(unique_ips) > MAX_IPS:
+                    # НАРУШЕНИЕ!
+                    strikes = add_strike(user)
+                    
+                    if strikes < MAX_STRIKES:
+                        msg = (
+                            f"🚫 <b>ВРЕМЕННАЯ БЛОКИРОВКА (1 час)</b>\n\n"
+                            f"Обнаружено {len(unique_ips)} одновременных устройств (Лимит: 2).\n"
+                            f"⚠️ Нарушение {strikes} из {MAX_STRIKES}.\n\n"
+                            f"Доступ вернется автоматически через час."
+                        )
+                        logger.warning(f"BAN (TEMP) -> {user} ({strikes} strikes)")
+                        ban_user(user, msg)
+                    else:
+                        msg = (
+                            f"⛔️ <b>ПОДПИСКА АННУЛИРОВАНА</b>\n\n"
+                            f"Вы нарушили правила 3 раза.\n"
+                            f"Ваш аккаунт заблокирован навсегда без возврата средств."
+                        )
+                        logger.warning(f"BAN (PERM) -> {user}")
+                        ban_user(user, msg)
+                    
+                    # Очищаем сессию, чтобы не банить каждую секунду
+                    active_sessions[user] = []
+                    
+            except Exception as e:
+                pass
+
+if __name__ == "__main__":
+    init_db()
+    # Запускаем поток разбана
+    t = threading.Thread(target=unban_worker)
+    t.daemon = True
+    t.start()
+    
+    # Запускаем чтение логов
+    tail_logs()
