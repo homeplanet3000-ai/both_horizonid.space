@@ -30,6 +30,12 @@ MAX_STRIKES = 3       # 3 нарушения = Вечный бан
 # Хранилище в памяти: { 'user_id': [ (ip, timestamp), ... ] }
 active_sessions = {}
 MAX_SESSION_AGE_SECONDS = WINDOW_SECONDS * 2
+CLEANUP_INTERVAL_SECONDS = 60
+
+_IP_PATTERNS = [
+    re.compile(r'(?:tcp|udp):(\[?[0-9a-fA-F:.]+\]?)(?::\d+)?'),
+    re.compile(r'(\[?[0-9a-fA-F:.]+\]?)(?::\d+)\b'),
+]
 
 # --- БАЗА ДАННЫХ (Для истории нарушений) ---
 def init_db():
@@ -173,12 +179,36 @@ def _open_log_file():
         raise PermissionError(f"Log file is not readable: {LOG_FILE}")
     return open(LOG_FILE, "r")
 
+def _extract_ip(line: str) -> str | None:
+    for pattern in _IP_PATTERNS:
+        match = pattern.search(line)
+        if match:
+            return match.group(1).strip("[]")
+    return None
+
+def _cleanup_sessions(now: float) -> None:
+    stale_users = []
+    for user, sessions in list(active_sessions.items()):
+        fresh = [(ip, ts) for ip, ts in sessions if now - ts < MAX_SESSION_AGE_SECONDS]
+        if fresh:
+            active_sessions[user] = fresh
+        else:
+            stale_users.append(user)
+    for user in stale_users:
+        active_sessions.pop(user, None)
+
 def tail_logs():
     logger.info("👮‍♂️ Надзиратель заступил на смену...")
 
     file_handle = None
     current_inode = None
+    last_cleanup = time.time()
     while True:
+        now = time.time()
+        if now - last_cleanup >= CLEANUP_INTERVAL_SECONDS:
+            _cleanup_sessions(now)
+            last_cleanup = now
+
         if file_handle is None:
             try:
                 file_handle = _open_log_file()
@@ -214,11 +244,10 @@ def tail_logs():
                 if not user_match:
                     continue
                 user = user_match.group(1)
-                # Извлекаем IP (первая часть адреса tcp:...)
-                ip_match = re.search(r'(?:tcp|udp):(\[?[0-9a-fA-F:.]+\]?)(?::\d+)?', line)
-                if not ip_match:
+
+                ip = _extract_ip(line)
+                if not ip:
                     continue
-                ip = ip_match.group(1).strip("[]")
                 
                 now = time.time()
                 

@@ -90,6 +90,7 @@ async def init_db() -> None:
         await _ensure_column(db, "users", "alert_sub_3d_sent", "INTEGER DEFAULT 0")
         await _ensure_column(db, "users", "alert_sub_1d_sent", "INTEGER DEFAULT 0")
         await _ensure_column(db, "users", "alert_traffic_90_sent", "INTEGER DEFAULT 0")
+        await _ensure_column(db, "users", "referrer_id", "INTEGER DEFAULT 0")
 
 async def _ensure_column(db: aiosqlite.Connection, table: str, column: str, column_def: str) -> None:
     cursor = await db.execute(f"PRAGMA table_info({table})")
