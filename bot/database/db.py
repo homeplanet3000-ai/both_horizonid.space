@@ -79,12 +79,6 @@ async def init_db():
 
         await _ensure_column(db, "users", "server_id", "TEXT DEFAULT 'default'")
         await _ensure_column(db, "payments", "server_id", "TEXT DEFAULT 'default'")
-        await _ensure_column(db, "subscriptions", "server_id", "TEXT DEFAULT 'default'")
-        await _ensure_column(db, "subscriptions", "link", "TEXT")
-        await _ensure_column(db, "subscriptions", "data_limit_bytes", "INTEGER DEFAULT 0")
-        await _ensure_column(db, "subscriptions", "expire_at", "INTEGER DEFAULT 0")
-        await _ensure_column(db, "subscriptions", "is_trial", "INTEGER DEFAULT 0")
-        await _ensure_column(db, "subscriptions", "created_at", "INTEGER")
 
 async def _ensure_column(db, table, column, column_def):
     cursor = await db.execute(f"PRAGMA table_info({table})")
