@@ -75,12 +75,20 @@ async def create_order(callback: CallbackQuery) -> None:
     user_data = await db.get_user(user_id)
     balance = user_data['balance'] if user_data else 0.0
 
-    async with db.get_db() as conn:
-        await conn.execute(
-            "INSERT INTO payments (order_id, user_id, amount, months, server_id, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (order_id, user_id, amount, months, server_id, int(time.time()))
+    try:
+        async with db.get_db() as conn:
+            await conn.execute(
+                "INSERT INTO payments (order_id, user_id, amount, months, server_id, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (order_id, user_id, amount, months, server_id, int(time.time()))
+            )
+            await conn.commit()
+    except Exception as exc:
+        logger.exception("Ошибка при создании заказа оплаты %s: %s", order_id, exc)
+        await callback.message.edit_text(
+            "⚠️ Не удалось создать счет. Попробуйте позже или обратитесь в поддержку."
         )
-        await conn.commit()
+        return
 
     pay_url = PaymentService.generate_url(amount, order_id, PAYMENT_DEFAULT_EMAIL)
     if not pay_url:
@@ -292,63 +300,74 @@ async def process_success_payment(
         return
 
     now = int(time.time())
-    async with db.get_db() as conn:
-        await conn.execute("BEGIN IMMEDIATE")
-        cursor = await conn.execute("SELECT sub_expire, referrer_id FROM users WHERE user_id = ?", (user_id,))
-        res = await cursor.fetchone()
-        if not res:
-            await conn.rollback()
-            await message.answer("⚠️ Пользователь не найден. Обратитесь в поддержку.")
-            return
-
-        current_expire = res[0] if res[0] else 0
-        referrer_id = res[1] if res[1] else 0
-        start_date = max(current_expire, now)
-        new_expire = start_date + (months * 30 * 86400)
-
-        if method == "Balance":
-            cursor = await conn.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
-            balance_row = await cursor.fetchone()
-            if not balance_row or balance_row[0] < amount:
-                await conn.execute(
-                    "UPDATE payments SET status = 'pending' WHERE order_id = ? AND status = 'processing'",
-                    (order_id,),
-                )
-                await conn.commit()
-                await message.answer("❌ Недостаточно средств на балансе для оплаты.")
+    try:
+        async with db.get_db() as conn:
+            await conn.execute("BEGIN IMMEDIATE")
+            cursor = await conn.execute("SELECT sub_expire, referrer_id FROM users WHERE user_id = ?", (user_id,))
+            res = await cursor.fetchone()
+            if not res:
+                await conn.rollback()
+                await message.answer("⚠️ Пользователь не найден. Обратитесь в поддержку.")
                 return
-            await conn.execute("UPDATE users SET balance = balance - ? WHERE user_id = ?", (amount, user_id))
+
+            current_expire = res[0] if res[0] else 0
+            referrer_id = res[1] if res[1] else 0
+            start_date = max(current_expire, now)
+            new_expire = start_date + (months * 30 * 86400)
+
+            if method == "Balance":
+                cursor = await conn.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
+                balance_row = await cursor.fetchone()
+                if not balance_row or balance_row[0] < amount:
+                    await conn.execute(
+                        "UPDATE payments SET status = 'pending' WHERE order_id = ? AND status = 'processing'",
+                        (order_id,),
+                    )
+                    await conn.commit()
+                    await message.answer("❌ Недостаточно средств на балансе для оплаты.")
+                    return
+                await conn.execute("UPDATE users SET balance = balance - ? WHERE user_id = ?", (amount, user_id))
+                await conn.execute(
+                    "INSERT INTO transactions (user_id, amount, type, comment, created_at) VALUES (?, ?, ?, ?, ?)",
+                    (user_id, -amount, "purchase", f"Оплата подписки {months} мес.", int(time.time())),
+                )
+
+            if method == "AAIO":
+                await conn.execute(
+                    "INSERT INTO transactions (user_id, amount, type, comment, created_at) VALUES (?, ?, ?, ?, ?)",
+                    (user_id, amount, "deposit", f"Пополнение AAIO {order_id}", int(time.time())),
+                )
+
             await conn.execute(
-                "INSERT INTO transactions (user_id, amount, type, comment, created_at) VALUES (?, ?, ?, ?, ?)",
-                (user_id, -amount, "purchase", f"Оплата подписки {months} мес.", int(time.time())),
+                "UPDATE users SET sub_expire = ?, server_id = ?, "
+                "alert_sub_3d_sent = 0, alert_sub_1d_sent = 0, alert_traffic_90_sent = 0 "
+                "WHERE user_id = ?",
+                (new_expire, server_id, user_id),
             )
 
-        if method == "AAIO":
             await conn.execute(
-                "INSERT INTO transactions (user_id, amount, type, comment, created_at) VALUES (?, ?, ?, ?, ?)",
-                (user_id, amount, "deposit", f"Пополнение AAIO {order_id}", int(time.time())),
+                """
+                INSERT INTO subscriptions (user_id, server_id, link, data_limit_bytes, expire_at, is_trial, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (user_id, server_id, key_link, 0, new_expire, 0, int(time.time())),
             )
 
-        await conn.execute(
-            "UPDATE users SET sub_expire = ?, server_id = ?, "
-            "alert_sub_3d_sent = 0, alert_sub_1d_sent = 0, alert_traffic_90_sent = 0 "
-            "WHERE user_id = ?",
-            (new_expire, server_id, user_id),
-        )
-
-        await conn.execute(
-            """
-            INSERT INTO subscriptions (user_id, server_id, link, data_limit_bytes, expire_at, is_trial, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (user_id, server_id, key_link, 0, new_expire, 0, int(time.time())),
-        )
-
-        await conn.execute(
-            "UPDATE payments SET status = 'paid' WHERE order_id = ? AND status = 'processing'",
-            (order_id,),
-        )
-        await conn.commit()
+            await conn.execute(
+                "UPDATE payments SET status = 'paid' WHERE order_id = ? AND status = 'processing'",
+                (order_id,),
+            )
+            await conn.commit()
+    except Exception as exc:
+        logger.exception("Ошибка при фиксации оплаты %s: %s", order_id, exc)
+        async with db.get_db() as conn:
+            await conn.execute(
+                "UPDATE payments SET status = 'paid_error' WHERE order_id = ? AND status = 'processing'",
+                (order_id,),
+            )
+            await conn.commit()
+        await message.answer("⚠️ Произошла ошибка при обработке оплаты. Попробуйте позже.")
+        return
 
     # 4. Реферальная система (только для AAIO)
     if referrer_id and referrer_id != 0 and method == "AAIO":

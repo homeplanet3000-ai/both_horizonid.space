@@ -1,7 +1,8 @@
 import logging
 import os
 import time
-from typing import Optional
+from contextlib import asynccontextmanager
+from typing import AsyncIterator, Optional
 
 import aiosqlite
 
@@ -12,9 +13,17 @@ DB_TIMEOUT_SECONDS = float(os.getenv("DB_TIMEOUT_SECONDS", "10"))
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), DB_NAME)
 
 # --- ГЛАВНАЯ ФУНКЦИЯ ПОДКЛЮЧЕНИЯ ---
-def get_db() -> aiosqlite.Connection:
+@asynccontextmanager
+async def get_db() -> AsyncIterator[aiosqlite.Connection]:
     """Контекстный менеджер для соединения с базой."""
-    return aiosqlite.connect(DB_PATH, timeout=DB_TIMEOUT_SECONDS)
+    db = await aiosqlite.connect(DB_PATH, timeout=DB_TIMEOUT_SECONDS)
+    try:
+        # Включаем ограничения и режим WAL на каждом соединении
+        await db.execute("PRAGMA foreign_keys = ON;")
+        await db.execute("PRAGMA journal_mode=WAL;")
+        yield db
+    finally:
+        await db.close()
 
 # --- ИНИЦИАЛИЗАЦИЯ БАЗЫ ---
 logger = logging.getLogger(__name__)
@@ -113,8 +122,18 @@ async def add_user(user_id: int, username: str, full_name: str, referrer_id: int
     async with get_db() as db:
         try:
             await db.execute(
-                "INSERT INTO users (user_id, username, full_name, referrer_id, registered_at) VALUES (?, ?, ?, ?, ?)",
-                (user_id, username, full_name, referrer_id, int(time.time()))
+                """
+                INSERT INTO users (user_id, username, full_name, referrer_id, registered_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    username = excluded.username,
+                    full_name = excluded.full_name,
+                    referrer_id = CASE
+                        WHEN users.referrer_id = 0 THEN excluded.referrer_id
+                        ELSE users.referrer_id
+                    END
+                """,
+                (user_id, username, full_name, referrer_id, int(time.time())),
             )
             await db.commit()
             return True
@@ -188,6 +207,18 @@ async def get_expired_subscriptions() -> list[aiosqlite.Row]:
             (now, now)
         ) as cursor:
             return await cursor.fetchall()
+
+async def expire_user_subscription(user_id: int, subscription_id: int) -> None:
+    """Помечает подписку истекшей и сбрасывает статус пользователя."""
+    async with get_db() as db:
+        await db.execute("BEGIN IMMEDIATE")
+        await db.execute("UPDATE subscriptions SET expire_at = 0 WHERE id = ?", (subscription_id,))
+        await db.execute(
+            "UPDATE users SET sub_expire = 0, alert_sub_3d_sent = 0, alert_sub_1d_sent = 0, "
+            "alert_traffic_90_sent = 0 WHERE user_id = ?",
+            (user_id,),
+        )
+        await db.commit()
 
 # --- ФУНКЦИИ ДЛЯ АДМИНКИ ---
 
