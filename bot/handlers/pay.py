@@ -112,30 +112,65 @@ async def create_order(callback: CallbackQuery):
 @pay_router.callback_query(F.data.startswith("check_pay_"))
 async def check_payment(callback: CallbackQuery):
     order_id = callback.data.split("check_pay_")[1]
-    
+
     async with db.get_db() as conn:
         conn.row_factory = None
-        cursor = await conn.execute("SELECT status, user_id, months, amount, server_id FROM payments WHERE order_id = ?", (order_id,))
+        await conn.execute("BEGIN IMMEDIATE")
+        cursor = await conn.execute(
+            "SELECT status, user_id, months, amount, server_id FROM payments WHERE order_id = ?",
+            (order_id,),
+        )
         payment = await cursor.fetchone()
-    
-    if not payment:
-        await callback.answer("❌ Заказ не найден.", show_alert=True)
-        return
 
-    status, user_id, months, amount, server_id = payment
+        if not payment:
+            await conn.rollback()
+            await callback.answer("❌ Заказ не найден.", show_alert=True)
+            return
 
-    if status == 'paid':
-        await callback.answer("✅ Этот счет уже оплачен!", show_alert=True)
-        return
+        status, user_id, months, amount, server_id = payment
+
+        if status == "paid":
+            await conn.rollback()
+            await callback.answer("✅ Этот счет уже оплачен!", show_alert=True)
+            return
+
+        if status == "processing":
+            await conn.rollback()
+            await callback.answer("⏳ Платеж уже обрабатывается, попробуйте чуть позже.", show_alert=True)
+            return
+
+        if status not in ("pending", "paid_error"):
+            await conn.rollback()
+            await callback.answer("⚠️ Неверный статус заказа. Обратитесь в поддержку.", show_alert=True)
+            return
+
+        cursor = await conn.execute(
+            "UPDATE payments SET status = 'processing' WHERE order_id = ? AND status = ?",
+            (order_id, status),
+        )
+        if cursor.rowcount == 0:
+            await conn.rollback()
+            await callback.answer("⏳ Платеж уже обрабатывается, попробуйте чуть позже.", show_alert=True)
+            return
+
+        await conn.commit()
 
     await callback.answer("🔄 Проверяю статус платежа...")
 
-    is_paid = await PaymentService.check_status(order_id)
-    
-    if is_paid:
-        await process_success_payment(callback.message, user_id, months, amount, order_id, "AAIO", server_id)
-    else:
+    already_paid = status == "paid_error"
+    is_paid = already_paid or await PaymentService.check_status(order_id)
+
+    if not is_paid:
+        async with db.get_db() as conn:
+            await conn.execute(
+                "UPDATE payments SET status = 'pending' WHERE order_id = ? AND status = 'processing'",
+                (order_id,),
+            )
+            await conn.commit()
         await callback.answer("❌ Оплата пока не поступила. Попробуйте через минуту.", show_alert=True)
+        return
+
+    await process_success_payment(callback.message, user_id, months, amount, order_id, "AAIO", server_id)
 
 # ==========================================
 # 3.1 ЗАГЛУШКА TELEGRAM STARS
@@ -155,7 +190,7 @@ async def pay_with_balance(callback: CallbackQuery):
 
     async with db.get_db() as conn:
         # Начинаем транзакцию
-        await conn.execute("BEGIN TRANSACTION")
+        await conn.execute("BEGIN IMMEDIATE")
         
         try:
             # 1. Получаем данные заказа
@@ -174,6 +209,16 @@ async def pay_with_balance(callback: CallbackQuery):
                 await callback.answer("Уже оплачено", show_alert=True)
                 return
 
+            if p_status == "processing":
+                await conn.rollback()
+                await callback.answer("⏳ Заказ уже обрабатывается, попробуйте позже.", show_alert=True)
+                return
+
+            if p_status != "pending":
+                await conn.rollback()
+                await callback.answer("⚠️ Неверный статус заказа", show_alert=True)
+                return
+
             # 2. Получаем баланс
             cursor = await conn.execute("SELECT balance FROM users WHERE user_id = ?", (p_user_id,))
             user_res = await cursor.fetchone()
@@ -184,20 +229,10 @@ async def pay_with_balance(callback: CallbackQuery):
 
             # 3. Проверка и списание
             if current_balance >= p_amount:
-                new_balance = current_balance - p_amount
-                
-                # Обновляем баланс
-                await conn.execute("UPDATE users SET balance = ? WHERE user_id = ?", (new_balance, p_user_id))
-                
-                # Обновляем статус заказа
-                await conn.execute("UPDATE payments SET status = 'paid' WHERE order_id = ?", (order_id,))
-                
-                # ИСПРАВЛЕНИЕ: Пишем транзакцию прямо здесь (без вызова db.add_transaction)
                 await conn.execute(
-                    "INSERT INTO transactions (user_id, amount, type, comment, created_at) VALUES (?, ?, ?, ?, ?)",
-                    (p_user_id, -p_amount, "purchase", f"Оплата подписки {p_months} мес.", int(time.time()))
+                    "UPDATE payments SET status = 'processing' WHERE order_id = ? AND status = 'pending'",
+                    (order_id,),
                 )
-                
                 await conn.commit()
                 # Переходим к успешной выдаче (уже вне транзакции БД)
                 await process_success_payment(callback.message, p_user_id, p_months, p_amount, order_id, "Balance", p_server_id)
@@ -215,52 +250,98 @@ async def pay_with_balance(callback: CallbackQuery):
 # ==========================================
 
 async def process_success_payment(message: Message, user_id: int, months: int, amount: float, order_id: str, method: str, server_id: str):
-    # 1. Если это внешняя оплата, фиксируем в БД (для баланса уже сделали)
-    if method == "AAIO":
+    if method == "Balance":
         async with db.get_db() as conn:
-            await conn.execute("UPDATE payments SET status = 'paid' WHERE order_id = ?", (order_id,))
-            # Запись о пополнении
-            await conn.execute(
-                "INSERT INTO transactions (user_id, amount, type, comment, created_at) VALUES (?, ?, ?, ?, ?)",
-                (user_id, amount, "deposit", f"Пополнение AAIO {order_id}", int(time.time()))
-            )
-            await conn.commit()
+            conn.row_factory = None
+            cursor = await conn.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
+            user_balance = await cursor.fetchone()
+            if not user_balance or user_balance[0] < amount:
+                await conn.execute(
+                    "UPDATE payments SET status = 'pending' WHERE order_id = ? AND status = 'processing'",
+                    (order_id,),
+                )
+                await conn.commit()
+                await message.answer("❌ Недостаточно средств на балансе для оплаты.")
+                return
 
-    # 2. Продлеваем подписку
-    async with db.get_db() as conn:
-        cursor = await conn.execute("SELECT sub_expire, referrer_id FROM users WHERE user_id = ?", (user_id,))
-        res = await cursor.fetchone()
-        
-        current_expire = res[0] if res[0] else 0
-        referrer_id = res[1] if res[1] else 0
-        
-        now = int(time.time())
-        start_date = max(current_expire, now)
-        new_expire = start_date + (months * 30 * 86400)
-        
-        await conn.execute(
-            "UPDATE users SET sub_expire = ?, server_id = ?, "
-            "alert_sub_3d_sent = 0, alert_sub_1d_sent = 0, alert_traffic_90_sent = 0 "
-            "WHERE user_id = ?",
-            (new_expire, server_id, user_id)
-        )
-        await conn.commit()
-
-    # 3. Активируем в Marzban
+    # 1. Активируем в Marzban
     server = get_server(server_id)
     base_url = server.get("marzban_url") if server else None
     key_link = await marzban_api.create_or_update_user(user_id, 0, base_url=base_url)
 
-    # 3.1 Записываем подписку
-    await db.add_subscription(
-        user_id=user_id,
-        server_id=server_id,
-        link=key_link,
-        data_limit_bytes=0,
-        expire_at=new_expire,
-        is_trial=False
-    )
-    
+    if not key_link:
+        fail_status = "paid_error" if method == "AAIO" else "pending"
+        async with db.get_db() as conn:
+            await conn.execute(
+                "UPDATE payments SET status = ? WHERE order_id = ? AND status = 'processing'",
+                (fail_status, order_id),
+            )
+            await conn.commit()
+        await message.answer(
+            "⚠️ Не удалось активировать доступ в VPN. Мы уже получили оплату, "
+            "но ключ временно не создан. Нажмите «Проверить оплату» позже или обратитесь в поддержку."
+        )
+        return
+
+    now = int(time.time())
+    async with db.get_db() as conn:
+        await conn.execute("BEGIN IMMEDIATE")
+        cursor = await conn.execute("SELECT sub_expire, referrer_id FROM users WHERE user_id = ?", (user_id,))
+        res = await cursor.fetchone()
+        if not res:
+            await conn.rollback()
+            await message.answer("⚠️ Пользователь не найден. Обратитесь в поддержку.")
+            return
+
+        current_expire = res[0] if res[0] else 0
+        referrer_id = res[1] if res[1] else 0
+        start_date = max(current_expire, now)
+        new_expire = start_date + (months * 30 * 86400)
+
+        if method == "Balance":
+            cursor = await conn.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
+            balance_row = await cursor.fetchone()
+            if not balance_row or balance_row[0] < amount:
+                await conn.execute(
+                    "UPDATE payments SET status = 'pending' WHERE order_id = ? AND status = 'processing'",
+                    (order_id,),
+                )
+                await conn.commit()
+                await message.answer("❌ Недостаточно средств на балансе для оплаты.")
+                return
+            await conn.execute("UPDATE users SET balance = balance - ? WHERE user_id = ?", (amount, user_id))
+            await conn.execute(
+                "INSERT INTO transactions (user_id, amount, type, comment, created_at) VALUES (?, ?, ?, ?, ?)",
+                (user_id, -amount, "purchase", f"Оплата подписки {months} мес.", int(time.time())),
+            )
+
+        if method == "AAIO":
+            await conn.execute(
+                "INSERT INTO transactions (user_id, amount, type, comment, created_at) VALUES (?, ?, ?, ?, ?)",
+                (user_id, amount, "deposit", f"Пополнение AAIO {order_id}", int(time.time())),
+            )
+
+        await conn.execute(
+            "UPDATE users SET sub_expire = ?, server_id = ?, "
+            "alert_sub_3d_sent = 0, alert_sub_1d_sent = 0, alert_traffic_90_sent = 0 "
+            "WHERE user_id = ?",
+            (new_expire, server_id, user_id),
+        )
+
+        await conn.execute(
+            """
+            INSERT INTO subscriptions (user_id, server_id, link, data_limit_bytes, expire_at, is_trial, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (user_id, server_id, key_link, 0, new_expire, 0, int(time.time())),
+        )
+
+        await conn.execute(
+            "UPDATE payments SET status = 'paid' WHERE order_id = ? AND status = 'processing'",
+            (order_id,),
+        )
+        await conn.commit()
+
     # 4. Реферальная система (только для AAIO)
     if referrer_id and referrer_id != 0 and method == "AAIO":
         bonus = amount * (REFERRAL_BONUS_PERCENT / 100)

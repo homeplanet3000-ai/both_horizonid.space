@@ -11,7 +11,7 @@ services:
     networks:
       - marzban-net
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - /var/lib/marzban:/var/lib/marzban
       - /opt/marzban/xray_config/xray_config.json:/var/lib/marzban/xray_config.json
@@ -30,7 +30,7 @@ services:
     networks:
       - marzban-net
     ports:
-      - "3306:3306"
+      - "127.0.0.1:3306:3306"
     environment:
       MARIADB_ROOT_PASSWORD_FILE: /run/secrets/mariadb_root_password
       MARIADB_DATABASE: marzban
@@ -48,7 +48,7 @@ services:
 
   # --- Gateway: Nginx (МЫ ВЕРНУЛИ ЕГО!) ---
   nginx:
-    image: nginx:latest
+    image: nginx:1.26.2
     container_name: nginx-gateway
     restart: always
     networks:
@@ -72,7 +72,7 @@ services:
     networks:
       - marzban-net
     ports:
-      - "1080:1080"
+      - "127.0.0.1:1080:1080"
     environment:
       WARP_SLEEP: 2
       # GOST нужен, если мы хотим использовать warp как socks5 прокси на порту 1080
@@ -104,7 +104,7 @@ services:
     networks:
       - marzban-net
     ports:
-      - "3001:3001"
+      - "127.0.0.1:3001:3001"
     volumes:
       - uptime-kuma:/app/data
 
