@@ -8,7 +8,10 @@ services:
     container_name: marzban
     restart: always
     env_file: .env
-    network_mode: host
+    networks:
+      - marzban-net
+    ports:
+      - "8000:8000"
     volumes:
       - /var/lib/marzban:/var/lib/marzban
       - /opt/marzban/xray_config/xray_config.json:/var/lib/marzban/xray_config.json
@@ -24,12 +27,17 @@ services:
     image: mariadb:10.11
     container_name: marzban-mariadb
     restart: always
-    network_mode: host
+    networks:
+      - marzban-net
+    ports:
+      - "3306:3306"
     environment:
-      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
+      MARIADB_ROOT_PASSWORD_FILE: /run/secrets/mariadb_root_password
       MARIADB_DATABASE: marzban
       MARIADB_USER: marzban
       MARIADB_PASSWORD: ${DB_PASSWORD}
+    secrets:
+      - mariadb_root_password
     volumes:
       - /opt/marzban/mysql_data:/var/lib/mysql
     healthcheck:
@@ -43,7 +51,11 @@ services:
     image: nginx:latest
     container_name: nginx-gateway
     restart: always
-    network_mode: host
+    networks:
+      - marzban-net
+    ports:
+      - "80:80"
+      - "443:443"
     volumes:
       - /opt/marzban/nginx_conf:/etc/nginx/conf.d
       - /etc/letsencrypt:/etc/letsencrypt
@@ -57,7 +69,10 @@ services:
     image: caomingjun/warp:latest
     container_name: warp-socks5
     restart: always
-    network_mode: host
+    networks:
+      - marzban-net
+    ports:
+      - "1080:1080"
     environment:
       WARP_SLEEP: 2
       # GOST нужен, если мы хотим использовать warp как socks5 прокси на порту 1080
@@ -73,7 +88,8 @@ services:
     image: marzban-vpn-bot
     container_name: vpn_bot
     restart: always
-    network_mode: host
+    networks:
+      - marzban-net
     env_file: .env
     volumes:
       - ./bot:/app
@@ -85,7 +101,10 @@ services:
     image: louislam/uptime-kuma:1
     container_name: uptime-kuma
     restart: always
-    network_mode: host
+    networks:
+      - marzban-net
+    ports:
+      - "3001:3001"
     volumes:
       - uptime-kuma:/app/data
 
@@ -94,7 +113,8 @@ services:
     build: ./supervisor
     container_name: marzban-policeman
     restart: always
-    network_mode: host
+    networks:
+      - marzban-net
     env_file: .env
     volumes:
       # Ему нужен доступ к логам Marzban, чтобы видеть IP
@@ -110,7 +130,8 @@ services:
     container_name: marzban-supervisor
     restart: always
     env_file: .env
-    network_mode: host
+    networks:
+      - marzban-net
     volumes:
       - /var/lib/marzban:/var/lib/marzban:ro
     depends_on:
@@ -118,3 +139,11 @@ services:
 
 volumes:
   uptime-kuma:
+
+secrets:
+  mariadb_root_password:
+    file: ./secrets/mariadb_root_password
+
+networks:
+  marzban-net:
+    driver: bridge

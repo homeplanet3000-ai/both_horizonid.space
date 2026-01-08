@@ -1,0 +1,5 @@
+.env
+secrets/
+__pycache__/
+*.pyc
+bot/bot_users.db

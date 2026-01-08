@@ -26,6 +26,7 @@ def is_admin(user_id):
 
 # 👑 ГЛАВНОЕ МЕНЮ АДМИНА
 @admin_router.message(Command("admin"))
+@admin_router.message(F.text == "👑 Админ-панель")
 async def admin_menu(message: types.Message):
     if not is_admin(message.from_user.id):
         return # Игнорируем чужаков

@@ -31,6 +31,9 @@ async def init_db():
                 sub_expire INTEGER DEFAULT 0,
                 trial_used INTEGER DEFAULT 0,
                 server_id TEXT DEFAULT 'default',
+                alert_sub_3d_sent INTEGER DEFAULT 0,
+                alert_sub_1d_sent INTEGER DEFAULT 0,
+                alert_traffic_90_sent INTEGER DEFAULT 0,
                 registered_at INTEGER
             )
         """)
@@ -79,6 +82,9 @@ async def init_db():
 
         await _ensure_column(db, "users", "server_id", "TEXT DEFAULT 'default'")
         await _ensure_column(db, "payments", "server_id", "TEXT DEFAULT 'default'")
+        await _ensure_column(db, "users", "alert_sub_3d_sent", "INTEGER DEFAULT 0")
+        await _ensure_column(db, "users", "alert_sub_1d_sent", "INTEGER DEFAULT 0")
+        await _ensure_column(db, "users", "alert_traffic_90_sent", "INTEGER DEFAULT 0")
 
 async def _ensure_column(db, table, column, column_def):
     cursor = await db.execute(f"PRAGMA table_info({table})")
