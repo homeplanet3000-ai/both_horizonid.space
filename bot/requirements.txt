@@ -3,6 +3,5 @@ aiohttp
 aiosqlite
 python-dotenv
 loguru
-psutil
 qrcode
 pillow

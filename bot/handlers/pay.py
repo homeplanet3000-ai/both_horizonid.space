@@ -10,7 +10,7 @@ from services.payment import PaymentService
 from services.marzban import marzban_api
 from services.servers import get_server
 from keyboards import inline
-from config import TARIFFS, REFERRAL_BONUS_PERCENT
+from config import PAYMENT_DEFAULT_EMAIL, REFERRAL_BONUS_PERCENT, TARIFFS
 
 pay_router = Router()
 logger = logging.getLogger(__name__)
@@ -82,7 +82,12 @@ async def create_order(callback: CallbackQuery):
         )
         await conn.commit()
 
-    pay_url = PaymentService.generate_url(amount, order_id)
+    pay_url = PaymentService.generate_url(amount, order_id, PAYMENT_DEFAULT_EMAIL)
+    if not pay_url:
+        await callback.message.edit_text(
+            "⚠️ Платежный сервис временно недоступен. Попробуйте позже или обратитесь в поддержку."
+        )
+        return
 
     text = (
         f"🧾 <b>Счет на оплату</b>\n"
@@ -233,7 +238,12 @@ async def process_success_payment(message: Message, user_id: int, months: int, a
         start_date = max(current_expire, now)
         new_expire = start_date + (months * 30 * 86400)
         
-        await conn.execute("UPDATE users SET sub_expire = ?, server_id = ? WHERE user_id = ?", (new_expire, server_id, user_id))
+        await conn.execute(
+            "UPDATE users SET sub_expire = ?, server_id = ?, "
+            "alert_sub_3d_sent = 0, alert_sub_1d_sent = 0, alert_traffic_90_sent = 0 "
+            "WHERE user_id = ?",
+            (new_expire, server_id, user_id)
+        )
         await conn.commit()
 
     # 3. Активируем в Marzban
@@ -284,5 +294,4 @@ async def process_success_payment(message: Message, user_id: int, months: int, a
     )
     server = get_server(server_id)
     if not server:
-        await callback.answer("Сервер не найден", show_alert=True)
-        return
+        logger.warning("Сервер не найден после успешной оплаты: %s", server_id)

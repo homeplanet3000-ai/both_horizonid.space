@@ -67,8 +67,8 @@ async def show_profile(message: Message):
         server_id = user["server_id"] if user["server_id"] else "default"
         server = get_server(server_id)
         base_url = server.get("marzban_url") if server else None
-        key_link = await marzban_api.create_or_update_user(user_id, 0, base_url=base_url)
         user_info = await marzban_api.get_user_info(f"user_{user_id}", base_url=base_url)
+        key_link = marzban_api.extract_link(user_info)
         used_bytes = user_info.get("used_traffic") if user_info else None
         limit_bytes = user_info.get("data_limit") if user_info else None
         usage_line = ""
@@ -85,6 +85,9 @@ async def show_profile(message: Message):
             expire_date_sub = datetime.datetime.fromtimestamp(sub["expire_at"]).strftime('%d.%m.%Y')
             subs_lines.append(f"• {expire_date_sub} — {sub['server_id']}")
         subs_block = "\n".join(subs_lines) if subs_lines else "—"
+
+        if not key_link and active_subs:
+            key_link = active_subs[0].get("link")
 
         text = (
             f"👤 <b>Личный кабинет</b>\n"
@@ -159,7 +162,9 @@ async def activate_trial(callback: CallbackQuery):
     
     async with db.get_db() as conn:
         await conn.execute(
-            "UPDATE users SET sub_expire = ?, trial_used = 1, server_id = ? WHERE user_id = ?",
+            "UPDATE users SET sub_expire = ?, trial_used = 1, server_id = ?, "
+            "alert_sub_3d_sent = 0, alert_sub_1d_sent = 0, alert_traffic_90_sent = 0 "
+            "WHERE user_id = ?",
             (new_expire, server_id, user_id)
         )
         await conn.commit()

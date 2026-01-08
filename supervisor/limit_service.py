@@ -15,10 +15,11 @@ load_dotenv(env_file)
 # --- КОНФИГУРАЦИЯ ---
 LOG_FILE = os.getenv("LOG_FILE", "/var/lib/marzban/access.log")
 DB_FILE = os.getenv("DB_FILE", "/app/policeman.db")
-PANEL_URL = os.getenv("PANEL_URL", "http://127.0.0.1:8000")
+PANEL_URL = os.getenv("PANEL_URL", "http://marzban:8000")
 ADMIN_USER = os.getenv("SUDO_USERNAME")
 ADMIN_PASS = os.getenv("SUDO_PASSWORD")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+LOG_RETRY_SECONDS = float(os.getenv("LOG_RETRY_SECONDS", "2"))
 
 # Правила
 WINDOW_SECONDS = 600  # 10 минут
@@ -152,16 +153,54 @@ def unban_worker():
                 conn.execute("UPDATE violations SET last_ban_time = 0 WHERE username = ?", (user,))
 
 # --- ОСНОВНОЙ ЛОГЕР ---
+def validate_required_settings():
+    missing = []
+    if not ADMIN_USER:
+        missing.append("SUDO_USERNAME")
+    if not ADMIN_PASS:
+        missing.append("SUDO_PASSWORD")
+    if missing:
+        logger.error("Missing required environment variables: %s", ", ".join(missing))
+        raise SystemExit("Required environment variables are missing or invalid.")
+    if not BOT_TOKEN:
+        logger.warning("BOT_TOKEN missing; user notifications will be disabled")
+
+def _open_log_file():
+    if not os.path.exists(LOG_FILE):
+        raise FileNotFoundError(f"Log file not found: {LOG_FILE}")
+    if not os.access(LOG_FILE, os.R_OK):
+        raise PermissionError(f"Log file is not readable: {LOG_FILE}")
+    return open(LOG_FILE, "r")
+
 def tail_logs():
     logger.info("👮‍♂️ Надзиратель заступил на смену...")
-    
-    # Открываем файл и идем в конец
-    f = open(LOG_FILE, "r")
-    f.seek(0, 2)
-    
+
+    file_handle = None
+    current_inode = None
     while True:
-        line = f.readline()
+        if file_handle is None:
+            try:
+                file_handle = _open_log_file()
+                file_handle.seek(0, 2)
+                current_inode = os.fstat(file_handle.fileno()).st_ino
+                logger.info("Log file opened: %s", LOG_FILE)
+            except (FileNotFoundError, PermissionError) as e:
+                logger.warning("%s; retrying in %.1f seconds", e, LOG_RETRY_SECONDS)
+                time.sleep(LOG_RETRY_SECONDS)
+                continue
+
+        line = file_handle.readline()
         if not line:
+            try:
+                if os.path.exists(LOG_FILE):
+                    inode = os.stat(LOG_FILE).st_ino
+                    if inode != current_inode:
+                        logger.info("Detected log rotation; reopening log file")
+                        file_handle.close()
+                        file_handle = None
+                        continue
+            except Exception as e:
+                logger.warning("Failed to check log file status: %s", e)
             time.sleep(0.1)
             continue
             
@@ -223,6 +262,7 @@ def tail_logs():
                 logger.warning("Failed to process log line: %s", e)
 
 if __name__ == "__main__":
+    validate_required_settings()
     init_db()
     # Запускаем поток разбана
     t = threading.Thread(target=unban_worker)
