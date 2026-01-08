@@ -166,22 +166,27 @@ async def activate_trial(callback: CallbackQuery) -> None:
 
     new_expire = int(time.time()) + (TRIAL_DAYS * 86400)
     
-    async with db.get_db() as conn:
-        await conn.execute(
-            "UPDATE users SET sub_expire = ?, trial_used = 1, server_id = ?, "
-            "alert_sub_3d_sent = 0, alert_sub_1d_sent = 0, alert_traffic_90_sent = 0 "
-            "WHERE user_id = ?",
-            (new_expire, server_id, user_id)
+    try:
+        async with db.get_db() as conn:
+            await conn.execute(
+                "UPDATE users SET sub_expire = ?, trial_used = 1, server_id = ?, "
+                "alert_sub_3d_sent = 0, alert_sub_1d_sent = 0, alert_traffic_90_sent = 0 "
+                "WHERE user_id = ?",
+                (new_expire, server_id, user_id)
+            )
+            await conn.commit()
+        await db.add_subscription(
+            user_id=user_id,
+            server_id=server_id,
+            link=key_link,
+            data_limit_bytes=TRIAL_LIMIT_BYTES,
+            expire_at=new_expire,
+            is_trial=True
         )
-        await conn.commit()
-    await db.add_subscription(
-        user_id=user_id,
-        server_id=server_id,
-        link=key_link,
-        data_limit_bytes=TRIAL_LIMIT_BYTES,
-        expire_at=new_expire,
-        is_trial=True
-    )
+    except Exception as exc:
+        logger.exception("Ошибка при активации тестового периода для пользователя %s: %s", user_id, exc)
+        await callback.message.answer("❌ Не удалось сохранить тестовый доступ. Попробуйте позже.")
+        return
     
     text = (
         f"🎁 <b>Тестовый период активирован!</b>\n"

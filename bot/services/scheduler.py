@@ -36,9 +36,10 @@ async def check_subscriptions(bot: Bot) -> None:
                 )
                 continue
 
-            async with db.get_db() as conn:
-                await conn.execute("UPDATE subscriptions SET expire_at = 0 WHERE id = ?", (sub["id"],))
-                await conn.commit()
+            try:
+                await db.expire_user_subscription(user_id, sub["id"])
+            except Exception:
+                logger.exception("Не удалось обновить статус подписки пользователя %s", user_id)
 
             try:
                 await bot.send_message(
