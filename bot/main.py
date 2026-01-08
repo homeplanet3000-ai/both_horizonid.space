@@ -4,7 +4,7 @@ import sys
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 
-from config import BOT_TOKEN
+from config import BOT_TOKEN, validate_required_settings
 from database import db
 from handlers import user, pay, admin
 from services.scheduler import scheduler_loop
@@ -23,6 +23,8 @@ logger = logging.getLogger(__name__)
 
 async def main():
     logger.info("🚀 Запуск бота...")
+
+    validate_required_settings()
     
     # 1. Инициализация БД
     await db.init_db()

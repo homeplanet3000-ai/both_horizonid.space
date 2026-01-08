@@ -1,13 +1,19 @@
-import os
 import json
+import logging
+import os
 from dotenv import load_dotenv
 
 # Загружаем переменные окружения
 load_dotenv()
+logger = logging.getLogger(__name__)
 
 # --- ОСНОВНЫЕ НАСТРОЙКИ ---
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = int(os.getenv("SUDO_ADMIN_ID", 0))
+_SUDO_ADMIN_ID_RAW = os.getenv("SUDO_ADMIN_ID")
+try:
+    ADMIN_ID = int(_SUDO_ADMIN_ID_RAW) if _SUDO_ADMIN_ID_RAW is not None else 0
+except ValueError:
+    ADMIN_ID = 0
 CHANNEL_LOGS = os.getenv("CHANNEL_LOGS")
 
 # Домен для замены в выдаваемых ссылках
@@ -50,6 +56,52 @@ AAIO_MERCHANT_ID = os.getenv("AAIO_MERCHANT_ID")
 AAIO_SECRET_1 = os.getenv("AAIO_SECRET_1")
 AAIO_SECRET_2 = os.getenv("AAIO_SECRET_2")
 AAIO_API_KEY = os.getenv("AAIO_API_KEY")
+
+# --- НАСТРОЙКИ CLOUDFLARE ---
+CLOUDFLARE_API_TOKEN = os.getenv("CLOUDFLARE_API_TOKEN")
+CLOUDFLARE_ZONE_ID = os.getenv("CLOUDFLARE_ZONE_ID")
+CLOUDFLARE_RECORD_ID = os.getenv("CLOUDFLARE_RECORD_ID")
+CLOUDFLARE_DNS_NAME = os.getenv("CLOUDFLARE_DNS_NAME")
+
+
+def validate_required_settings() -> None:
+    missing = []
+    invalid = []
+
+    required_vars = [
+        "BOT_TOKEN",
+        "SUDO_ADMIN_ID",
+        "SUDO_USERNAME",
+        "SUDO_PASSWORD",
+        "AAIO_MERCHANT_ID",
+        "AAIO_SECRET_1",
+        "AAIO_SECRET_2",
+        "AAIO_API_KEY",
+        "CLOUDFLARE_API_TOKEN",
+        "CLOUDFLARE_ZONE_ID",
+        "CLOUDFLARE_RECORD_ID",
+        "CLOUDFLARE_DNS_NAME",
+    ]
+
+    for var in required_vars:
+        if not os.getenv(var):
+            missing.append(var)
+
+    if _SUDO_ADMIN_ID_RAW:
+        try:
+            admin_id = int(_SUDO_ADMIN_ID_RAW)
+            if admin_id <= 0:
+                invalid.append("SUDO_ADMIN_ID must be a positive integer")
+        except ValueError:
+            invalid.append("SUDO_ADMIN_ID must be a valid integer")
+
+    if missing:
+        logger.error("Missing required environment variables: %s", ", ".join(missing))
+    if invalid:
+        logger.error("Invalid environment variables: %s", "; ".join(invalid))
+
+    if missing or invalid:
+        raise SystemExit("Required environment variables are missing or invalid.")
 
 # --- ЛОГИКА И ЦЕНЫ ---
 # Длительность пробного периода (в днях)
