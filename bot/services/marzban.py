@@ -107,16 +107,17 @@ class MarzbanAPI:
     ) -> Optional[str]:
         """Создает или обновляет пользователя. data_limit=0 это безлимит."""
         username = f"user_{user_id}"
-        proxy_settings = {"flow": VLESS_FLOW} if VLESS_FLOW else {}
+        proxy_settings = {"flow": VLESS_FLOW} if VLESS_FLOW else None
         
         # Данные для создания
         payload = {
             "username": username,
-            "proxies": {"vless": proxy_settings},
             "inbounds": {"vless": ["VLESS_REALITY"]},
             "data_limit": data_limit_bytes,
             "status": "active"
         }
+        if proxy_settings:
+            payload["proxies"] = {"vless": proxy_settings}
 
         # 1. Пробуем создать
         res = await self._request("POST", "user", json=payload, base_url=base_url)
