@@ -1,16 +1,19 @@
-import time
 import datetime
+import logging
+import time
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.filters import CommandStart, CommandObject, Command
 
 from database import db
 from services.marzban import marzban_api
+from services.servers import get_active_server, get_server
 from keyboards import reply, inline
-from config import TRIAL_DAYS, TRIAL_LIMIT_BYTES, ADMIN_ID
+from config import TRIAL_DAYS, TRIAL_LIMIT_BYTES
 from utils.misc import generate_qr
 
 user_router = Router()
+logger = logging.getLogger(__name__)
 
 # ==========================================
 # 🚀 START & MAIN MENU
@@ -61,15 +64,37 @@ async def show_profile(message: Message):
     
     if sub_expire > now:
         # --- ПОДПИСКА АКТИВНА ---
-        key_link = await marzban_api.create_or_update_user(user_id, 0)
+        server_id = user["server_id"] if user["server_id"] else "default"
+        server = get_server(server_id)
+        base_url = server.get("marzban_url") if server else None
+        key_link = await marzban_api.create_or_update_user(user_id, 0, base_url=base_url)
+        user_info = await marzban_api.get_user_info(f"user_{user_id}", base_url=base_url)
+        used_bytes = user_info.get("used_traffic") if user_info else None
+        limit_bytes = user_info.get("data_limit") if user_info else None
+        usage_line = ""
+        if used_bytes is not None and limit_bytes:
+            used_gb = used_bytes / (1024 ** 3)
+            limit_gb = limit_bytes / (1024 ** 3)
+            percent = (used_bytes / limit_bytes) * 100 if limit_bytes else 0
+            usage_line = f"📊 Трафик: <b>{used_gb:.2f}/{limit_gb:.2f} ГБ</b> ({percent:.0f}%)\n"
+        active_subs = await db.get_active_subscriptions(user_id)
         expire_date = datetime.datetime.fromtimestamp(sub_expire).strftime('%d.%m.%Y %H:%M')
         
+        subs_lines = []
+        for sub in active_subs[:10]:
+            expire_date_sub = datetime.datetime.fromtimestamp(sub["expire_at"]).strftime('%d.%m.%Y')
+            subs_lines.append(f"• {expire_date_sub} — {sub['server_id']}")
+        subs_block = "\n".join(subs_lines) if subs_lines else "—"
+
         text = (
             f"👤 <b>Личный кабинет</b>\n"
             f"➖➖➖➖➖➖➖➖➖➖\n"
             f"🆔 ID: <code>{user_id}</code>\n"
             f"💰 Баланс: <b>{balance:.2f} ₽</b>\n"
-            f"✅ <b>Подписка активна до:</b> {expire_date}\n\n"
+            f"✅ <b>Подписка активна до:</b> {expire_date}\n"
+            f"{usage_line}\n"
+            f"📦 <b>Подписок:</b> {len(active_subs)}\n"
+            f"{subs_block}\n\n"
             f"🔑 <b>Ваш ключ доступа:</b>\n"
             f"<code>{key_link}</code>\n\n"
             f"<i>Нажмите на ключ, чтобы скопировать.</i>"
@@ -121,7 +146,10 @@ async def activate_trial(callback: CallbackQuery):
 
     await callback.message.answer("⏳ <b>Активирую тестовый доступ...</b>", parse_mode="HTML")
     
-    key_link = await marzban_api.create_or_update_user(user_id, TRIAL_LIMIT_BYTES)
+    active_server = get_active_server()
+    server_id = active_server["id"] if active_server else "default"
+    base_url = active_server.get("marzban_url") if active_server else None
+    key_link = await marzban_api.create_or_update_user(user_id, TRIAL_LIMIT_BYTES, base_url=base_url)
     
     if not key_link:
         await callback.message.answer("❌ Ошибка сервера VPN. Попробуйте позже.")
@@ -131,10 +159,18 @@ async def activate_trial(callback: CallbackQuery):
     
     async with db.get_db() as conn:
         await conn.execute(
-            "UPDATE users SET sub_expire = ?, trial_used = 1 WHERE user_id = ?", 
-            (new_expire, user_id)
+            "UPDATE users SET sub_expire = ?, trial_used = 1, server_id = ? WHERE user_id = ?",
+            (new_expire, server_id, user_id)
         )
         await conn.commit()
+    await db.add_subscription(
+        user_id=user_id,
+        server_id=server_id,
+        link=key_link,
+        data_limit_bytes=TRIAL_LIMIT_BYTES,
+        expire_at=new_expire,
+        is_trial=True
+    )
     
     text = (
         f"🎁 <b>Тестовый период активирован!</b>\n"
@@ -271,4 +307,5 @@ async def support_info(message: Message):
 async def close_msg(callback: CallbackQuery):
     try:
         await callback.message.delete()
-    except: pass
+    except Exception as e:
+        logger.debug("Не удалось удалить сообщение: %s", e)

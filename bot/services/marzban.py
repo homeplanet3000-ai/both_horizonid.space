@@ -1,15 +1,15 @@
 import aiohttp
 from loguru import logger
-from config import MARZBAN_URL, MARZBAN_USERNAME, MARZBAN_PASSWORD, SUBSCRIPTION_DOMAIN
+from config import MARZBAN_URL, MARZBAN_USERNAME, MARZBAN_PASSWORD, SUBSCRIPTION_DOMAIN, VLESS_FLOW
 
 class MarzbanAPI:
     def __init__(self):
         self.base_url = MARZBAN_URL
-        self.token = None
+        self.tokens = {}
 
-    async def get_token(self):
+    async def get_token(self, base_url=None):
         """Получение токена администратора"""
-        url = f"{self.base_url}/api/admin/token"
+        url = f"{base_url or self.base_url}/api/admin/token"
         data = {"username": MARZBAN_USERNAME, "password": MARZBAN_PASSWORD}
         
         try:
@@ -17,8 +17,9 @@ class MarzbanAPI:
                 async with session.post(url, data=data) as resp:
                     if resp.status == 200:
                         json_resp = await resp.json()
-                        self.token = json_resp.get("access_token")
-                        return self.token
+                        token = json_resp.get("access_token")
+                        self.tokens[base_url or self.base_url] = token
+                        return token
                     else:
                         logger.error(f"Marzban Auth Failed: {resp.status}")
                         return None
@@ -26,19 +27,27 @@ class MarzbanAPI:
             logger.error(f"Marzban Connection Error: {e}")
             return None
 
-    async def _request(self, method, endpoint, json=None):
+    async def _request(self, method, endpoint, json=None, base_url=None):
         """Внутренний метод для запросов с авто-обновлением токена"""
-        if not self.token:
-            await self.get_token()
+        base = base_url or self.base_url
+        token = self.tokens.get(base)
+        if not token:
+            token = await self.get_token(base)
+        if not token:
+            logger.error("Marzban token is missing; request aborted for %s %s", method, endpoint)
+            return None
 
-        url = f"{self.base_url}/api/{endpoint}"
-        headers = {"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"}
+        url = f"{base}/api/{endpoint}"
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
         async with aiohttp.ClientSession() as session:
             async with session.request(method, url, json=json, headers=headers) as resp:
                 if resp.status == 401: # Токен протух
-                    await self.get_token()
-                    headers["Authorization"] = f"Bearer {self.token}"
+                    token = await self.get_token(base)
+                    if not token:
+                        logger.error("Marzban token refresh failed for %s", base)
+                        return None
+                    headers["Authorization"] = f"Bearer {token}"
                     async with session.request(method, url, json=json, headers=headers) as resp_retry:
                         return await self._handle_response(resp_retry)
                 return await self._handle_response(resp)
@@ -52,37 +61,40 @@ class MarzbanAPI:
             logger.error(f"API Error {resp.status}: {await resp.text()}")
             return None
 
-    async def create_or_update_user(self, user_id: int, data_limit_bytes: int = 0):
+    async def create_or_update_user(self, user_id: int, data_limit_bytes: int = 0, base_url=None):
         """Создает или обновляет пользователя. data_limit=0 это безлимит."""
         username = f"user_{user_id}"
+        proxy_settings = {"flow": VLESS_FLOW} if VLESS_FLOW else {}
         
         # Данные для создания
         payload = {
             "username": username,
-            "proxies": {"vless": {}},
+            "proxies": {"vless": proxy_settings},
             "inbounds": {"vless": ["VLESS_REALITY"]},
             "data_limit": data_limit_bytes,
             "status": "active"
         }
 
         # 1. Пробуем создать
-        res = await self._request("POST", "user", json=payload)
+        res = await self._request("POST", "user", json=payload, base_url=base_url)
         
         # 2. Если уже есть (conflict), обновляем лимиты
         if res and res.get("status") == "conflict":
             # Сбрасываем потребление при обновлении
             update_payload = {"data_limit": data_limit_bytes, "status": "active"}
-            if data_limit_bytes == 0: 
-                 update_payload["used_traffic"] = 0
+            if proxy_settings:
+                update_payload["proxies"] = {"vless": proxy_settings}
+            if data_limit_bytes == 0:
+                update_payload["used_traffic"] = 0
             
-            await self._request("PUT", f"user/{username}", json=update_payload)
+            await self._request("PUT", f"user/{username}", json=update_payload, base_url=base_url)
             # Запрашиваем актуальные данные для получения ссылок
-            res = await self.get_user_info(username)
+            res = await self.get_user_info(username, base_url=base_url)
 
         return self._extract_link(res)
 
-    async def get_user_info(self, username):
-        return await self._request("GET", f"user/{username}")
+    async def get_user_info(self, username, base_url=None):
+        return await self._request("GET", f"user/{username}", base_url=base_url)
 
     def _extract_link(self, user_data):
         """Вытаскивает VLESS ссылку и меняет IP на домен"""
@@ -92,11 +104,27 @@ class MarzbanAPI:
         links = user_data.get("links", [])
         target_link = None
         
-        # Ищем приоритетную ссылку (WS CDN)
+        # Ищем приоритетную ссылку с Flow
         for link in links:
-            if "VLESS_WS_CDN" in link:
+            if not VLESS_FLOW:
+                break
+            if f"flow={VLESS_FLOW}" in link or f"flow%3D{VLESS_FLOW}" in link:
                 target_link = link
                 break
+
+        # Ищем VLESS Reality
+        if not target_link:
+            for link in links:
+                if "VLESS_REALITY" in link or "REALITY" in link or "reality" in link:
+                    target_link = link
+                    break
+
+        # Ищем приоритетную ссылку (WS CDN)
+        if not target_link:
+            for link in links:
+                if "VLESS_WS_CDN" in link:
+                    target_link = link
+                    break
         
         if not target_link and links:
             target_link = links[0]

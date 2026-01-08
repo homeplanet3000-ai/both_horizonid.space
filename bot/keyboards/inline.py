@@ -1,19 +1,36 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from config import TARIFFS
+from services.servers import get_servers, status_emoji
 
 # --- ТАРИФЫ ---
-def tariffs_menu():
+def tariffs_menu(server_id: str = "default"):
     # Генерация кнопок на основе настроек в config.py
     # Это решает пункт плана №4 (легкое редактирование цен)
     buttons = []
     for months, price in TARIFFS.items():
         # Формируем текст: "📅 1 Месяц — 125₽"
         text = f"📅 {months} {'Месяц' if months == 1 else 'Месяца' if months < 5 else 'Месяцев'} — {price}₽"
-        buttons.append([InlineKeyboardButton(text=text, callback_data=f"buy_sub_{months}")])
+        buttons.append([InlineKeyboardButton(text=text, callback_data=f"buy_sub_{months}_{server_id}")])
 
     buttons.append([InlineKeyboardButton(text="📜 Правила и Оферта", callback_data="rules")])
     buttons.append([InlineKeyboardButton(text="⬅️ Закрыть", callback_data="close")])
 
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+# --- СЕРВЕРА ---
+def servers_menu():
+    buttons = []
+    for server in get_servers():
+        name = server.get("name", "Сервер")
+        flag = server.get("flag", "🌍")
+        status = status_emoji(server.get("status"))
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"{flag} {name} {status}",
+                callback_data=f"select_server_{server['id']}"
+            )
+        ])
+    buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="close")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 # --- ПРОФИЛЬ ---
@@ -38,6 +55,7 @@ def payment_menu(url: str, order_id: str, amount: float, user_balance: float):
 
     # 1. Ссылка на кассу
     kb.append([InlineKeyboardButton(text="💳 Оплатить картой/криптой", url=url)])
+    kb.append([InlineKeyboardButton(text="⭐ Оплатить Telegram Stars (скоро)", callback_data=f"pay_stars_{order_id}")])
 
     # 2. Оплата балансом (если хватает денег)
     if user_balance >= amount:

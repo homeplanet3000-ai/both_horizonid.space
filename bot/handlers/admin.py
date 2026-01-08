@@ -1,18 +1,18 @@
-from aiogram import Router, F, types, Bot
+import logging
+
+from aiogram import Router, F, types
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-import os
-
+from config import ADMIN_ID
 # Импортируем функции из базы данных
 from database.db import get_stats, add_balance, get_all_users
 
 # !!! ВОТ ЗДЕСЬ БЫЛА ОШИБКА. ТЕПЕРЬ ИМЯ ПРАВИЛЬНОЕ:
 admin_router = Router()
 
-# Получаем ID админа из переменных окружения
-ADMIN_ID = int(os.getenv("ADMIN_ID", 0))
+logger = logging.getLogger(__name__)
 
 # --- Состояния (шаги диалога) ---
 class AdminState(StatesGroup):
@@ -33,7 +33,8 @@ async def admin_menu(message: types.Message):
     # Получаем статистику
     try:
         users_count = await get_stats()
-    except:
+    except Exception as e:
+        logger.error("Ошибка БД при получении статистики: %s", e)
         users_count = "Ошибка БД"
 
     text = (
@@ -84,8 +85,8 @@ async def give_money(message: types.Message, state: FSMContext):
         # Попробуем уведомить пользователя
         try:
             await message.bot.send_message(target_id, f"🎁 Администратор пополнил ваш баланс на {amount}₽!")
-        except:
-            pass 
+        except Exception as e:
+            logger.warning("Не удалось отправить уведомление пользователю %s: %s", target_id, e)
 
     except Exception as e:
         await message.answer(f"❌ Ошибка базы данных: {e}")
@@ -114,7 +115,8 @@ async def process_broadcast(message: types.Message, state: FSMContext):
             # Копируем сообщение админа и шлем пользователю
             await message.copy_to(user_id)
             count += 1
-        except:
+        except Exception as e:
+            logger.warning("Рассылка: не удалось отправить пользователю %s: %s", user_id, e)
             continue # Если юзер заблокировал бота, пропускаем
 
     await status_msg.edit_text(f"✅ Рассылка завершена!\nПолучили: {count} из {len(users)}")

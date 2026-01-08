@@ -1,4 +1,5 @@
 import aiosqlite
+import logging
 import time
 import os
 
@@ -13,6 +14,7 @@ def get_db():
     return aiosqlite.connect(DB_PATH)
 
 # --- ИНИЦИАЛИЗАЦИЯ БАЗЫ ---
+logger = logging.getLogger(__name__)
 async def init_db():
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("PRAGMA journal_mode=WAL;")
@@ -28,6 +30,7 @@ async def init_db():
                 referrer_id INTEGER DEFAULT 0,
                 sub_expire INTEGER DEFAULT 0,
                 trial_used INTEGER DEFAULT 0,
+                server_id TEXT DEFAULT 'default',
                 registered_at INTEGER
             )
         """)
@@ -40,7 +43,22 @@ async def init_db():
                 user_id INTEGER,
                 amount REAL,
                 months INTEGER,
+                server_id TEXT DEFAULT 'default',
                 status TEXT DEFAULT 'pending',
+                created_at INTEGER
+            )
+        """)
+
+        # 4. Таблица подписок (несколько подписок на пользователя)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS subscriptions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                server_id TEXT DEFAULT 'default',
+                link TEXT,
+                data_limit_bytes INTEGER DEFAULT 0,
+                expire_at INTEGER DEFAULT 0,
+                is_trial INTEGER DEFAULT 0,
                 created_at INTEGER
             )
         """)
@@ -59,6 +77,22 @@ async def init_db():
         
         await db.commit()
 
+        await _ensure_column(db, "users", "server_id", "TEXT DEFAULT 'default'")
+        await _ensure_column(db, "payments", "server_id", "TEXT DEFAULT 'default'")
+        await _ensure_column(db, "subscriptions", "server_id", "TEXT DEFAULT 'default'")
+        await _ensure_column(db, "subscriptions", "link", "TEXT")
+        await _ensure_column(db, "subscriptions", "data_limit_bytes", "INTEGER DEFAULT 0")
+        await _ensure_column(db, "subscriptions", "expire_at", "INTEGER DEFAULT 0")
+        await _ensure_column(db, "subscriptions", "is_trial", "INTEGER DEFAULT 0")
+        await _ensure_column(db, "subscriptions", "created_at", "INTEGER")
+
+async def _ensure_column(db, table, column, column_def):
+    cursor = await db.execute(f"PRAGMA table_info({table})")
+    existing = await cursor.fetchall()
+    if any(row[1] == column for row in existing):
+        return
+    await db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_def}")
+
 # --- ФУНКЦИИ ДЛЯ ПОЛЬЗОВАТЕЛЯ ---
 
 async def add_user(user_id, username, full_name, referrer_id=0):
@@ -70,7 +104,8 @@ async def add_user(user_id, username, full_name, referrer_id=0):
             )
             await db.commit()
             return True
-        except:
+        except Exception as e:
+            logger.warning("Не удалось добавить пользователя %s: %s", user_id, e)
             return False
 
 async def get_user(user_id):
@@ -89,6 +124,39 @@ async def add_transaction(user_id, amount, t_type, comment):
             (user_id, amount, t_type, comment, int(time.time()))
         )
         await db.commit()
+
+# --- ФУНКЦИИ ПОДПИСОК ---
+
+async def add_subscription(user_id, server_id, link, data_limit_bytes, expire_at, is_trial):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """
+            INSERT INTO subscriptions (user_id, server_id, link, data_limit_bytes, expire_at, is_trial, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (user_id, server_id, link, data_limit_bytes, expire_at, int(is_trial), int(time.time()))
+        )
+        await db.commit()
+
+async def get_active_subscriptions(user_id):
+    now = int(time.time())
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM subscriptions WHERE user_id = ? AND expire_at > ? ORDER BY expire_at DESC",
+            (user_id, now)
+        ) as cursor:
+            return await cursor.fetchall()
+
+async def get_expired_subscriptions():
+    now = int(time.time())
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM subscriptions WHERE expire_at > 0 AND expire_at <= ?",
+            (now,)
+        ) as cursor:
+            return await cursor.fetchall()
 
 # --- ФУНКЦИИ ДЛЯ АДМИНКИ ---
 
