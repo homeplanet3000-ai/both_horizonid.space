@@ -96,6 +96,16 @@ services:
     volumes:
       - uptime-kuma:/app/data
 
+  # --- DNS Ads Blocking: AdGuard Home ---
+  adguard:
+    image: adguard/adguardhome:latest
+    container_name: adguard-home
+    restart: always
+    network_mode: host
+    volumes:
+      - ./adguard/work:/opt/adguardhome/work
+      - ./adguard/conf:/opt/adguardhome/conf
+
   # --- Policeman (Надзиратель за лимитами) ---
   policeman:
     build: ./supervisor

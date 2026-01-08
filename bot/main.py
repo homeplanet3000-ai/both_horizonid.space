@@ -9,6 +9,7 @@ from database import db
 from handlers import user, pay, admin
 from services.scheduler import scheduler_loop
 from services.servers import health_check_loop
+from services.monitoring import monitoring_loop
 from services.http import close_session
 
 # Настройка логирования
@@ -46,6 +47,7 @@ async def main() -> None:
     # Запуск планировщика в фоне (проверка подписок)
     asyncio.create_task(scheduler_loop(bot))
     asyncio.create_task(health_check_loop())
+    asyncio.create_task(monitoring_loop())
     
     try:
         await dp.start_polling(bot)

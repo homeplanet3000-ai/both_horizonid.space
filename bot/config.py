@@ -100,6 +100,46 @@ HEALTHCHECK_TIMEOUT_SECONDS = float(os.getenv("HEALTHCHECK_TIMEOUT_SECONDS", "10
 HEALTHCHECK_LATENCY_WARN_MS = int(os.getenv("HEALTHCHECK_LATENCY_WARN_MS", "200"))
 HEALTHCHECK_LATENCY_DOWN_MS = int(os.getenv("HEALTHCHECK_LATENCY_DOWN_MS", "500"))
 
+# --- НАСТРОЙКИ МОНИТОРИНГА ---
+MONITOR_INTERVAL_SECONDS = int(os.getenv("MONITOR_INTERVAL_SECONDS", "60"))
+MONITOR_TIMEOUT_SECONDS = float(os.getenv("MONITOR_TIMEOUT_SECONDS", "5"))
+
+_DEFAULT_MONITOR_TARGETS = [
+    {
+        "id": "marzban",
+        "name": "Marzban API",
+        "url": f"{MARZBAN_URL}/api/system",
+    },
+    {
+        "id": "adguard",
+        "name": "AdGuard Home",
+        "url": "http://127.0.0.1:3000",
+    },
+]
+
+
+def load_monitor_targets() -> List[Dict[str, Any]]:
+    raw = os.getenv("MONITOR_TARGETS")
+    if not raw:
+        return _DEFAULT_MONITOR_TARGETS
+    try:
+        data = json.loads(raw)
+        if isinstance(data, list) and data:
+            validated = []
+            for index, entry in enumerate(data):
+                if not isinstance(entry, dict):
+                    raise ValueError(f"MONITOR_TARGETS[{index}] must be a JSON object")
+                if not entry.get("url"):
+                    raise ValueError(f"MONITOR_TARGETS[{index}] missing url")
+                validated.append(entry)
+            return validated
+    except (json.JSONDecodeError, ValueError) as exc:
+        logger.error("Invalid MONITOR_TARGETS: %s", exc)
+    return _DEFAULT_MONITOR_TARGETS
+
+
+MONITOR_TARGETS = load_monitor_targets()
+
 
 def validate_required_settings() -> None:
     missing = []
