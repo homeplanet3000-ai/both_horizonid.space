@@ -22,7 +22,7 @@ SUBSCRIPTION_DOMAIN = os.getenv("SUBSCRIPTION_DOMAIN", "vpn.horizonid.space")
 
 # --- НАСТРОЙКИ MARZBAN ---
 # Внутренний адрес панели Marzban
-MARZBAN_URL = os.getenv("MARZBAN_URL", "http://marzban:8000")
+MARZBAN_URL = os.getenv("MARZBAN_URL", "http://127.0.0.1:8000")
 MARZBAN_USERNAME = os.getenv("SUDO_USERNAME")
 MARZBAN_PASSWORD = os.getenv("SUDO_PASSWORD")
 VLESS_FLOW = os.getenv("VLESS_FLOW", "xtls-rprx-vision")

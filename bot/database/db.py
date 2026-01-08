@@ -6,6 +6,7 @@ from typing import Optional
 import aiosqlite
 
 DB_NAME = "bot_users.db"
+DB_TIMEOUT_SECONDS = float(os.getenv("DB_TIMEOUT_SECONDS", "10"))
 
 # Путь к базе данных: поднимаемся на уровень выше папки database
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), DB_NAME)
@@ -13,7 +14,7 @@ DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), DB_NAME)
 # --- ГЛАВНАЯ ФУНКЦИЯ ПОДКЛЮЧЕНИЯ ---
 def get_db() -> aiosqlite.Connection:
     """Контекстный менеджер для соединения с базой."""
-    return aiosqlite.connect(DB_PATH)
+    return aiosqlite.connect(DB_PATH, timeout=DB_TIMEOUT_SECONDS)
 
 # --- ИНИЦИАЛИЗАЦИЯ БАЗЫ ---
 logger = logging.getLogger(__name__)

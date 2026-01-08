@@ -15,7 +15,7 @@ load_dotenv(env_file)
 # --- КОНФИГУРАЦИЯ ---
 LOG_FILE = os.getenv("LOG_FILE", "/var/lib/marzban/access.log")
 DB_FILE = os.getenv("DB_FILE", "/app/policeman.db")
-PANEL_URL = os.getenv("PANEL_URL", "http://marzban:8000")
+PANEL_URL = os.getenv("PANEL_URL", "http://127.0.0.1:8000")
 ADMIN_USER = os.getenv("SUDO_USERNAME")
 ADMIN_PASS = os.getenv("SUDO_PASSWORD")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -29,6 +29,7 @@ MAX_STRIKES = 3       # 3 нарушения = Вечный бан
 
 # Хранилище в памяти: { 'user_id': [ (ip, timestamp), ... ] }
 active_sessions = {}
+MAX_SESSION_AGE_SECONDS = WINDOW_SECONDS * 2
 
 # --- БАЗА ДАННЫХ (Для истории нарушений) ---
 def init_db():
@@ -209,11 +210,15 @@ def tail_logs():
         if "email:" in line and "accepted" in line:
             try:
                 # Извлекаем email (user_id)
-                user = re.search(r'email:\s+(\S+)', line).group(1)
+                user_match = re.search(r'email:\s+(\S+)', line)
+                if not user_match:
+                    continue
+                user = user_match.group(1)
                 # Извлекаем IP (первая часть адреса tcp:...)
-                ip_match = re.search(r'tcp:(\d+\.\d+\.\d+\.\d+)', line)
-                if not ip_match: continue
-                ip = ip_match.group(1)
+                ip_match = re.search(r'(?:tcp|udp):(\[?[0-9a-fA-F:.]+\]?)(?::\d+)?', line)
+                if not ip_match:
+                    continue
+                ip = ip_match.group(1).strip("[]")
                 
                 now = time.time()
                 
@@ -229,6 +234,12 @@ def tail_logs():
                     (i, t) for (i, t) in active_sessions[user] 
                     if now - t < WINDOW_SECONDS
                 ]
+                if not active_sessions[user]:
+                    active_sessions.pop(user, None)
+                    continue
+                if now - max(t for _, t in active_sessions[user]) > MAX_SESSION_AGE_SECONDS:
+                    active_sessions.pop(user, None)
+                    continue
                 
                 # Считаем уникальные IP
                 unique_ips = set(i for i, t in active_sessions[user])
