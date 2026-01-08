@@ -89,6 +89,8 @@ async def show_profile(message: Message):
         if not key_link and active_subs:
             key_link = active_subs[0].get("link")
 
+        key_display = key_link or "Ключ временно недоступен. Попробуйте позже."
+
         text = (
             f"👤 <b>Личный кабинет</b>\n"
             f"➖➖➖➖➖➖➖➖➖➖\n"
@@ -99,7 +101,7 @@ async def show_profile(message: Message):
             f"📦 <b>Подписок:</b> {len(active_subs)}\n"
             f"{subs_block}\n\n"
             f"🔑 <b>Ваш ключ доступа:</b>\n"
-            f"<code>{key_link}</code>\n\n"
+            f"<code>{key_display}</code>\n\n"
             f"<i>Нажмите на ключ, чтобы скопировать.</i>"
         )
         

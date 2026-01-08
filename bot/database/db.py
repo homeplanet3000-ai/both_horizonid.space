@@ -153,8 +153,18 @@ async def get_expired_subscriptions():
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
-            "SELECT * FROM subscriptions WHERE expire_at > 0 AND expire_at <= ?",
-            (now,)
+            """
+            SELECT s.*
+            FROM subscriptions s
+            WHERE s.expire_at > 0
+              AND s.expire_at <= ?
+              AND NOT EXISTS (
+                SELECT 1 FROM subscriptions s2
+                WHERE s2.user_id = s.user_id
+                  AND s2.expire_at > ?
+              )
+            """,
+            (now, now)
         ) as cursor:
             return await cursor.fetchall()
 
