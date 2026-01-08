@@ -81,6 +81,11 @@ services:
       - ./bot:/app
     depends_on:
       - marzban
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os; os.kill(1, 0)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
   # --- Monitoring: Uptime Kuma (Из твоего старого файла) ---
   uptime-kuma:
@@ -105,6 +110,11 @@ services:
       - ./supervisor:/app
     depends_on:
       - marzban
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os; os.kill(1, 0)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
 # --- Supervisor (Надзиратель) ---
   supervisor:
@@ -117,6 +127,11 @@ services:
       - /var/lib/marzban:/var/lib/marzban:ro
     depends_on:
       - marzban
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os; os.kill(1, 0)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
 volumes:
   uptime-kuma:

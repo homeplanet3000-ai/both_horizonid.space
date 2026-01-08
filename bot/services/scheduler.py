@@ -7,6 +7,7 @@ from config import SUB_ALERT_DAYS_1, SUB_ALERT_DAYS_3, SUB_ALERT_WINDOW_SECONDS,
 from database import db
 from services.marzban import marzban_api
 from services.servers import get_server
+from services.alerts import send_alert
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,13 @@ async def check_subscriptions(bot: Bot) -> None:
 
             server = get_server(server_id)
             base_url = server.get("marzban_url") if server else None
-            await marzban_api.create_or_update_user(user_id, data_limit_bytes=1, base_url=base_url)
+            result = await marzban_api.create_or_update_user(user_id, data_limit_bytes=1, base_url=base_url)
+            if not result:
+                await send_alert(
+                    f"⚠️ Не удалось ограничить доступ для пользователя <b>{user_id}</b> "
+                    f"на сервере <b>{server_id}</b>. Попробуем позже."
+                )
+                continue
 
             async with db.get_db() as conn:
                 await conn.execute("UPDATE subscriptions SET expire_at = 0 WHERE id = ?", (sub["id"],))

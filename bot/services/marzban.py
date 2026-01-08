@@ -14,6 +14,7 @@ from config import (
     SUBSCRIPTION_DOMAIN,
     VLESS_FLOW,
 )
+from services.http import get_session
 
 class MarzbanAPI:
     def __init__(self) -> None:
@@ -28,15 +29,15 @@ class MarzbanAPI:
 
         for attempt in range(MARZBAN_RETRY_COUNT + 1):
             try:
-                async with aiohttp.ClientSession(timeout=timeout) as session:
-                    async with session.post(url, data=data) as resp:
-                        if resp.status == 200:
-                            json_resp = await resp.json()
-                            token = json_resp.get("access_token")
-                            self.tokens[base_url or self.base_url] = token
-                            return token
-                        logger.error("Marzban Auth Failed: %s", resp.status)
-                        return None
+                session = await get_session()
+                async with session.post(url, data=data, timeout=timeout) as resp:
+                    if resp.status == 200:
+                        json_resp = await resp.json()
+                        token = json_resp.get("access_token")
+                        self.tokens[base_url or self.base_url] = token
+                        return token
+                    logger.error("Marzban Auth Failed: %s", resp.status)
+                    return None
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
                 logger.warning("Marzban Auth Error (attempt %s/%s): %s", attempt + 1, MARZBAN_RETRY_COUNT + 1, e)
                 if attempt < MARZBAN_RETRY_COUNT:
@@ -67,21 +68,21 @@ class MarzbanAPI:
 
         for attempt in range(MARZBAN_RETRY_COUNT + 1):
             try:
-                async with aiohttp.ClientSession(timeout=timeout) as session:
-                    async with session.request(method, url, json=json, headers=headers) as resp:
-                        if resp.status == 401:  # Токен протух
-                            token = await self.get_token(base)
-                            if not token:
-                                logger.error("Marzban token refresh failed for %s", base)
-                                return None
-                            headers["Authorization"] = f"Bearer {token}"
-                            async with session.request(method, url, json=json, headers=headers) as resp_retry:
-                                return await self._handle_response(resp_retry)
-                        if resp.status >= 500 and attempt < MARZBAN_RETRY_COUNT:
-                            logger.warning("Marzban server error %s; retrying", resp.status)
-                            await asyncio.sleep(MARZBAN_RETRY_BACKOFF_SECONDS * (attempt + 1))
-                            continue
-                        return await self._handle_response(resp)
+                session = await get_session()
+                async with session.request(method, url, json=json, headers=headers, timeout=timeout) as resp:
+                    if resp.status == 401:  # Токен протух
+                        token = await self.get_token(base)
+                        if not token:
+                            logger.error("Marzban token refresh failed for %s", base)
+                            return None
+                        headers["Authorization"] = f"Bearer {token}"
+                        async with session.request(method, url, json=json, headers=headers, timeout=timeout) as resp_retry:
+                            return await self._handle_response(resp_retry)
+                    if resp.status >= 500 and attempt < MARZBAN_RETRY_COUNT:
+                        logger.warning("Marzban server error %s; retrying", resp.status)
+                        await asyncio.sleep(MARZBAN_RETRY_BACKOFF_SECONDS * (attempt + 1))
+                        continue
+                    return await self._handle_response(resp)
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
                 logger.warning("Marzban request failed (attempt %s/%s): %s", attempt + 1, MARZBAN_RETRY_COUNT + 1, e)
                 if attempt < MARZBAN_RETRY_COUNT:

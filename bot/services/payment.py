@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional
 from urllib.parse import urlencode
 
@@ -13,6 +14,7 @@ from config import (
     PAYMENT_RETRY_COUNT,
     PAYMENT_TIMEOUT_SECONDS,
 )
+from services.http import get_session
 
 class PaymentService:
     @staticmethod
@@ -27,12 +29,14 @@ class PaymentService:
             return None
 
         # Формула SHA-256: merchant_id:amount:currency:secret_1:order_id
-        sign_str = f"{AAIO_MERCHANT_ID}:{amount}:{currency}:{AAIO_SECRET_1}:{order_id}"
+        normalized_amount = Decimal(str(amount)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        amount_str = f"{normalized_amount:.2f}"
+        sign_str = f"{AAIO_MERCHANT_ID}:{amount_str}:{currency}:{AAIO_SECRET_1}:{order_id}"
         sign = hashlib.sha256(sign_str.encode('utf-8')).hexdigest()
 
         params = {
             "merchant_id": AAIO_MERCHANT_ID,
-            "amount": amount,
+            "amount": amount_str,
             "currency": currency,
             "order_id": order_id,
             "sign": sign,
@@ -61,18 +65,18 @@ class PaymentService:
 
         for attempt in range(PAYMENT_RETRY_COUNT + 1):
             try:
-                async with aiohttp.ClientSession(timeout=timeout) as session:
-                    async with session.post(url, data=params, headers=headers) as resp:
-                        if resp.status == 200:
-                            data = await resp.json()
-                            if data.get('type') == 'success' and data.get('status') == 'success':
-                                return True
-                            return False
-                        logger.error("AAIO Check Error: %s", await resp.text())
-                        if attempt < PAYMENT_RETRY_COUNT:
-                            await asyncio.sleep(PAYMENT_RETRY_BACKOFF_SECONDS * (attempt + 1))
-                            continue
+                session = await get_session()
+                async with session.post(url, data=params, headers=headers, timeout=timeout) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        if data.get('type') == 'success' and data.get('status') == 'success':
+                            return True
                         return False
+                    logger.error("AAIO Check Error: %s", await resp.text())
+                    if attempt < PAYMENT_RETRY_COUNT:
+                        await asyncio.sleep(PAYMENT_RETRY_BACKOFF_SECONDS * (attempt + 1))
+                        continue
+                    return False
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
                 logger.error("AAIO Connection Error (attempt %s/%s): %s", attempt + 1, PAYMENT_RETRY_COUNT + 1, e)
                 if attempt < PAYMENT_RETRY_COUNT:

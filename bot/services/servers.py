@@ -3,8 +3,6 @@ import logging
 import time
 from typing import Any, Dict, List, Optional
 
-import aiohttp
-
 from config import (
     HEALTHCHECK_INTERVAL_SECONDS,
     HEALTHCHECK_LATENCY_DOWN_MS,
@@ -14,6 +12,7 @@ from config import (
 )
 from services.alerts import send_alert
 from services.failover import update_dns
+from services.http import get_session
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +62,7 @@ def get_active_server() -> Optional[Dict[str, Any]]:
     return None
 
 
-async def _check_server(session: aiohttp.ClientSession, server: Dict[str, Any]) -> str:
+async def _check_server(session, server: Dict[str, Any]) -> str:
     url = server.get("health_check_url") or server.get("marzban_url")
     if not url:
         return STATUS_WARN
@@ -90,16 +89,16 @@ async def _check_server(session: aiohttp.ClientSession, server: Dict[str, Any]) 
 
 async def health_check_loop(interval_seconds: int = HEALTHCHECK_INTERVAL_SECONDS) -> None:
     while True:
-        async with aiohttp.ClientSession() as session:
-            tasks = [asyncio.create_task(_check_server(session, server)) for server in SERVERS]
-            results = await asyncio.gather(*tasks)
-            for server, status in zip(SERVERS, results):
-                previous = _server_status.get(server["id"])
-                _server_status[server["id"]] = status
-                if previous and previous != status:
-                    latency_ms = _server_latency_ms.get(server["id"])
-                    latency_note = f" ({latency_ms} ms)" if latency_ms is not None else ""
-                    await send_alert(f"⚡ Сервер <b>{server['id']}</b> сменил статус: {status}{latency_note}")
+        session = await get_session()
+        tasks = [asyncio.create_task(_check_server(session, server)) for server in SERVERS]
+        results = await asyncio.gather(*tasks)
+        for server, status in zip(SERVERS, results):
+            previous = _server_status.get(server["id"])
+            _server_status[server["id"]] = status
+            if previous and previous != status:
+                latency_ms = _server_latency_ms.get(server["id"])
+                latency_note = f" ({latency_ms} ms)" if latency_ms is not None else ""
+                await send_alert(f"⚡ Сервер <b>{server['id']}</b> сменил статус: {status}{latency_note}")
         active_server = get_active_server()
         if active_server:
             global _active_server_id
