@@ -9,6 +9,7 @@ from database import db
 from handlers import user, pay, admin
 from services.scheduler import scheduler_loop
 from services.servers import health_check_loop
+from services.http import close_session
 
 # Настройка логирования
 logging.basicConfig(
@@ -51,6 +52,7 @@ async def main() -> None:
     except Exception:
         logger.exception("Ошибка при запуске")
     finally:
+        await close_session()
         await bot.session.close()
 
 if __name__ == "__main__":

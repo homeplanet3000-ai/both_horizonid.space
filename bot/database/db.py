@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 async def init_db() -> None:
     async with get_db() as db:
+        await db.execute("PRAGMA foreign_keys = ON;")
         await db.execute("PRAGMA journal_mode=WAL;")
         
         # 1. Таблица пользователей
@@ -91,6 +92,9 @@ async def init_db() -> None:
         await _ensure_column(db, "users", "alert_sub_1d_sent", "INTEGER DEFAULT 0")
         await _ensure_column(db, "users", "alert_traffic_90_sent", "INTEGER DEFAULT 0")
         await _ensure_column(db, "users", "referrer_id", "INTEGER DEFAULT 0")
+        await _ensure_index(db, "users_user_id_idx", "users", "user_id")
+        await _ensure_index(db, "payments_order_id_idx", "payments", "order_id")
+        await _ensure_index(db, "subscriptions_user_expire_idx", "subscriptions", "user_id, expire_at")
 
 async def _ensure_column(db: aiosqlite.Connection, table: str, column: str, column_def: str) -> None:
     cursor = await db.execute(f"PRAGMA table_info({table})")
@@ -98,6 +102,10 @@ async def _ensure_column(db: aiosqlite.Connection, table: str, column: str, colu
     if any(row[1] == column for row in existing):
         return
     await db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_def}")
+
+
+async def _ensure_index(db: aiosqlite.Connection, name: str, table: str, columns: str) -> None:
+    await db.execute(f"CREATE INDEX IF NOT EXISTS {name} ON {table} ({columns})")
 
 # --- ФУНКЦИИ ДЛЯ ПОЛЬЗОВАТЕЛЯ ---
 

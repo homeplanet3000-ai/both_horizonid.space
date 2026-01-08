@@ -20,6 +20,8 @@ ADMIN_USER = os.getenv("SUDO_USERNAME")
 ADMIN_PASS = os.getenv("SUDO_PASSWORD")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 LOG_RETRY_SECONDS = float(os.getenv("LOG_RETRY_SECONDS", "2"))
+HTTP_RETRY_COUNT = int(os.getenv("HTTP_RETRY_COUNT", "2"))
+HTTP_RETRY_BACKOFF_SECONDS = float(os.getenv("HTTP_RETRY_BACKOFF_SECONDS", "1.5"))
 
 # Правила
 WINDOW_SECONDS = 600  # 10 минут
@@ -78,6 +80,25 @@ def get_token():
         logger.error(f"Login failed: {e}")
     return None
 
+def _request_with_retry(method, url, **kwargs):
+    for attempt in range(HTTP_RETRY_COUNT + 1):
+        try:
+            resp = requests.request(method, url, **kwargs)
+            if resp.status_code >= 400:
+                logger.warning("HTTP %s failed (%s): %s", method, resp.status_code, resp.text)
+                if attempt < HTTP_RETRY_COUNT:
+                    time.sleep(HTTP_RETRY_BACKOFF_SECONDS * (attempt + 1))
+                    continue
+            return resp
+        except requests.RequestException as e:
+            logger.warning("HTTP %s error (attempt %s/%s): %s", method, attempt + 1, HTTP_RETRY_COUNT + 1, e)
+            if attempt < HTTP_RETRY_COUNT:
+                time.sleep(HTTP_RETRY_BACKOFF_SECONDS * (attempt + 1))
+                continue
+            raise
+    return None
+
+
 def ban_user(username, reason_msg):
     token = get_token()
     if not token:
@@ -86,12 +107,16 @@ def ban_user(username, reason_msg):
     
     headers = {"Authorization": f"Bearer {token}"}
     # Ставим статус disabled
-    requests.put(
-        f"{PANEL_URL}/api/user/{username}",
-        json={"status": "disabled"},
-        headers=headers,
-        timeout=10
-    )
+    try:
+        _request_with_retry(
+            "PUT",
+            f"{PANEL_URL}/api/user/{username}",
+            json={"status": "disabled"},
+            headers=headers,
+            timeout=10
+        )
+    except requests.RequestException:
+        logger.warning("Failed to ban user %s due to HTTP errors", username)
     
     # Шлем уведомление в Telegram
     if not BOT_TOKEN:
@@ -99,7 +124,8 @@ def ban_user(username, reason_msg):
         return
     try:
         tg_id = username.replace("user_", "")
-        requests.post(
+        _request_with_retry(
+            "POST",
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
             json={"chat_id": tg_id, "text": reason_msg, "parse_mode": "HTML"},
             timeout=10
@@ -114,19 +140,24 @@ def unban_user(username):
         return
     headers = {"Authorization": f"Bearer {token}"}
     # Возвращаем active
-    requests.put(
-        f"{PANEL_URL}/api/user/{username}",
-        json={"status": "active"},
-        headers=headers,
-        timeout=10
-    )
+    try:
+        _request_with_retry(
+            "PUT",
+            f"{PANEL_URL}/api/user/{username}",
+            json={"status": "active"},
+            headers=headers,
+            timeout=10
+        )
+    except requests.RequestException:
+        logger.warning("Failed to unban user %s due to HTTP errors", username)
     
     if not BOT_TOKEN:
         logger.warning("BOT_TOKEN is missing; cannot notify user %s", username)
         return
     try:
         tg_id = username.replace("user_", "")
-        requests.post(
+        _request_with_retry(
+            "POST",
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
             json={
                 "chat_id": tg_id,
