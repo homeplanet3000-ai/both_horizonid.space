@@ -1,5 +1,3 @@
 requests
-schedule
 python-dotenv
 loguru
-aiosqlite

@@ -110,6 +110,7 @@ def validate_required_settings() -> None:
         "SUDO_ADMIN_ID",
         "SUDO_USERNAME",
         "SUDO_PASSWORD",
+        "PAYMENT_DEFAULT_EMAIL",
     ]
     payment_vars = [
         "AAIO_MERCHANT_ID",

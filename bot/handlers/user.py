@@ -68,7 +68,7 @@ async def show_profile(message: Message):
         server = get_server(server_id)
         base_url = server.get("marzban_url") if server else None
         user_info = await marzban_api.get_user_info(f"user_{user_id}", base_url=base_url)
-        key_link = marzban_api._extract_link(user_info)
+        key_link = marzban_api.extract_link(user_info)
         used_bytes = user_info.get("used_traffic") if user_info else None
         limit_bytes = user_info.get("data_limit") if user_info else None
         usage_line = ""

@@ -56,7 +56,10 @@ def get_active_server():
     for server in servers:
         if server["status"] == STATUS_OK:
             return server
-    return servers[0] if servers else None
+    for server in servers:
+        if server["status"] == STATUS_WARN:
+            return server
+    return None
 
 
 async def _check_server(session: aiohttp.ClientSession, server: dict):
@@ -109,4 +112,6 @@ async def health_check_loop(interval_seconds: int = HEALTHCHECK_INTERVAL_SECONDS
                         f"⚠️ Не удалось переключить DNS на <b>{active_server['id']}</b>. "
                         "Проверьте Cloudflare."
                     )
+        else:
+            await send_alert("🔴 Нет доступных серверов для переключения DNS.")
         await asyncio.sleep(interval_seconds)

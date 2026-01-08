@@ -126,6 +126,9 @@ class MarzbanAPI:
     async def get_user_info(self, username, base_url=None):
         return await self._request("GET", f"user/{username}", base_url=base_url)
 
+    def extract_link(self, user_info):
+        return self._extract_link(user_info)
+
     def _extract_link(self, user_data):
         """Вытаскивает VLESS ссылку и меняет IP на домен"""
         if not user_data or "links" not in user_data:
