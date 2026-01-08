@@ -20,11 +20,11 @@ logger = logging.getLogger(__name__)
 # ==========================================
 
 @pay_router.message(F.text == "💎 Купить подписку")
-async def show_tariffs(message: Message):
+async def show_tariffs(message: Message) -> None:
     await message.answer("🌍 <b>Выберите сервер:</b>", reply_markup=inline.servers_menu(), parse_mode="HTML")
 
 @pay_router.callback_query(F.data == "open_tariffs")
-async def show_tariffs_cb(callback: CallbackQuery):
+async def show_tariffs_cb(callback: CallbackQuery) -> None:
     if callback.message.photo:
         await callback.message.delete()
         await callback.message.answer("🌍 <b>Выберите сервер:</b>", reply_markup=inline.servers_menu(), parse_mode="HTML")
@@ -32,7 +32,7 @@ async def show_tariffs_cb(callback: CallbackQuery):
         await callback.message.edit_text("🌍 <b>Выберите сервер:</b>", reply_markup=inline.servers_menu(), parse_mode="HTML")
 
 @pay_router.callback_query(F.data.startswith("select_server_"))
-async def select_server(callback: CallbackQuery):
+async def select_server(callback: CallbackQuery) -> None:
     server_id = callback.data.split("select_server_")[1]
     server = get_server(server_id)
     if not server:
@@ -50,7 +50,7 @@ async def select_server(callback: CallbackQuery):
 # ==========================================
 
 @pay_router.callback_query(F.data.startswith("buy_sub_"))
-async def create_order(callback: CallbackQuery):
+async def create_order(callback: CallbackQuery) -> None:
     try:
         parts = callback.data.split("_", 3)
         months = int(parts[2])
@@ -110,7 +110,7 @@ async def create_order(callback: CallbackQuery):
 # ==========================================
 
 @pay_router.callback_query(F.data.startswith("check_pay_"))
-async def check_payment(callback: CallbackQuery):
+async def check_payment(callback: CallbackQuery) -> None:
     order_id = callback.data.split("check_pay_")[1]
 
     async with db.get_db() as conn:
@@ -177,7 +177,7 @@ async def check_payment(callback: CallbackQuery):
 # ==========================================
 
 @pay_router.callback_query(F.data.startswith("pay_stars_"))
-async def pay_with_stars(callback: CallbackQuery):
+async def pay_with_stars(callback: CallbackQuery) -> None:
     await callback.answer("⭐ Оплата Telegram Stars скоро появится!", show_alert=True)
 
 # ==========================================
@@ -185,7 +185,7 @@ async def pay_with_stars(callback: CallbackQuery):
 # ==========================================
 
 @pay_router.callback_query(F.data.startswith("pay_balance_"))
-async def pay_with_balance(callback: CallbackQuery):
+async def pay_with_balance(callback: CallbackQuery) -> None:
     order_id = callback.data.split("pay_balance_")[1]
 
     async with db.get_db() as conn:
@@ -249,7 +249,15 @@ async def pay_with_balance(callback: CallbackQuery):
 # 🛠 ОБРАБОТКА УСПЕШНОЙ ПОКУПКИ
 # ==========================================
 
-async def process_success_payment(message: Message, user_id: int, months: int, amount: float, order_id: str, method: str, server_id: str):
+async def process_success_payment(
+    message: Message,
+    user_id: int,
+    months: int,
+    amount: float,
+    order_id: str,
+    method: str,
+    server_id: str,
+) -> None:
     if method == "Balance":
         async with db.get_db() as conn:
             conn.row_factory = None

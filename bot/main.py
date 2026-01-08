@@ -21,7 +21,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-async def main():
+async def main() -> None:
     logger.info("🚀 Запуск бота...")
 
     validate_required_settings()
@@ -48,8 +48,8 @@ async def main():
     
     try:
         await dp.start_polling(bot)
-    except Exception as e:
-        logger.error(f"Ошибка при запуске: {e}")
+    except Exception:
+        logger.exception("Ошибка при запуске")
     finally:
         await bot.session.close()
 

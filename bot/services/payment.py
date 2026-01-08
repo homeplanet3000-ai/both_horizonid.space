@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+from typing import Optional
 from urllib.parse import urlencode
 
 import aiohttp
@@ -15,7 +16,7 @@ from config import (
 
 class PaymentService:
     @staticmethod
-    def generate_url(amount: float, order_id: str, email: str):
+    def generate_url(amount: float, order_id: str, email: str) -> Optional[str]:
         currency = "RUB"
         desc = f"Order {order_id}"
         if not (AAIO_MERCHANT_ID and AAIO_SECRET_1):
@@ -42,7 +43,7 @@ class PaymentService:
         return url
 
     @staticmethod
-    async def check_status(order_id: str):
+    async def check_status(order_id: str) -> bool:
         """Проверяет статус заказа через API"""
         if not (AAIO_MERCHANT_ID and AAIO_API_KEY):
             logger.error("AAIO credentials missing; cannot check payment status")

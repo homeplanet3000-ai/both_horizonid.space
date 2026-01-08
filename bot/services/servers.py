@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import time
+from typing import Any, Dict, List, Optional
 
 import aiohttp
 
@@ -20,9 +21,9 @@ STATUS_OK = "ok"
 STATUS_WARN = "warn"
 STATUS_DOWN = "down"
 
-_server_status = {server["id"]: STATUS_OK for server in SERVERS}
-_server_latency_ms = {server["id"]: None for server in SERVERS}
-_active_server_id = None
+_server_status: Dict[str, str] = {server["id"]: STATUS_OK for server in SERVERS}
+_server_latency_ms: Dict[str, Optional[int]] = {server["id"]: None for server in SERVERS}
+_active_server_id: Optional[str] = None
 
 
 def status_emoji(status: str) -> str:
@@ -33,7 +34,7 @@ def status_emoji(status: str) -> str:
     }.get(status, "🟡")
 
 
-def get_servers():
+def get_servers() -> List[Dict[str, Any]]:
     return [
         {
             **server,
@@ -44,14 +45,14 @@ def get_servers():
     ]
 
 
-def get_server(server_id: str):
+def get_server(server_id: str) -> Optional[Dict[str, Any]]:
     for server in SERVERS:
         if server["id"] == server_id:
             return {**server, "status": _server_status.get(server_id, STATUS_WARN)}
     return None
 
 
-def get_active_server():
+def get_active_server() -> Optional[Dict[str, Any]]:
     servers = get_servers()
     for server in servers:
         if server["status"] == STATUS_OK:
@@ -62,7 +63,7 @@ def get_active_server():
     return None
 
 
-async def _check_server(session: aiohttp.ClientSession, server: dict):
+async def _check_server(session: aiohttp.ClientSession, server: Dict[str, Any]) -> str:
     url = server.get("health_check_url") or server.get("marzban_url")
     if not url:
         return STATUS_WARN
@@ -87,7 +88,7 @@ async def _check_server(session: aiohttp.ClientSession, server: dict):
         return STATUS_DOWN
 
 
-async def health_check_loop(interval_seconds: int = HEALTHCHECK_INTERVAL_SECONDS):
+async def health_check_loop(interval_seconds: int = HEALTHCHECK_INTERVAL_SECONDS) -> None:
     while True:
         async with aiohttp.ClientSession() as session:
             tasks = [asyncio.create_task(_check_server(session, server)) for server in SERVERS]

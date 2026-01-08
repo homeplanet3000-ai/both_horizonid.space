@@ -3,7 +3,7 @@ import logging
 import time
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
-from aiogram.filters import CommandStart, CommandObject, Command
+from aiogram.filters import CommandStart, CommandObject
 
 from database import db
 from services.marzban import marzban_api
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 # ==========================================
 
 @user_router.message(CommandStart())
-async def cmd_start(message: Message, command: CommandObject):
+async def cmd_start(message: Message, command: CommandObject) -> None:
     user_id = message.from_user.id
     username = message.from_user.username or "Unknown"
     full_name = message.from_user.full_name
@@ -49,7 +49,7 @@ async def cmd_start(message: Message, command: CommandObject):
 # ==========================================
 
 @user_router.message(F.text == "👤 Мой профиль")
-async def show_profile(message: Message):
+async def show_profile(message: Message) -> None:
     user_id = message.from_user.id
     user = await db.get_user(user_id)
     
@@ -134,10 +134,13 @@ async def show_profile(message: Message):
 # ==========================================
 
 @user_router.callback_query(F.data == "get_trial")
-async def activate_trial(callback: CallbackQuery):
+async def activate_trial(callback: CallbackQuery) -> None:
     user_id = callback.from_user.id
     user = await db.get_user(user_id)
-    
+    if not user:
+        await callback.answer("⚠️ Пользователь не найден. Нажмите /start", show_alert=True)
+        return
+
     trial_used = user['trial_used'] if user['trial_used'] is not None else 0
     sub_expire = user['sub_expire'] if user['sub_expire'] is not None else 0
 
@@ -200,11 +203,11 @@ async def activate_trial(callback: CallbackQuery):
 # ==========================================
 
 @user_router.message(F.text == "📱 Инструкция")
-async def show_instructions_main(message: Message):
+async def show_instructions_main(message: Message) -> None:
     await message.answer("👇 <b>Выберите ваше устройство:</b>", reply_markup=inline.instructions_menu(), parse_mode="HTML")
 
 @user_router.callback_query(F.data == "instr_main")
-async def show_instructions_cb(callback: CallbackQuery):
+async def show_instructions_cb(callback: CallbackQuery) -> None:
     if callback.message.photo:
         await callback.message.delete()
         await callback.message.answer("👇 <b>Выберите ваше устройство:</b>", reply_markup=inline.instructions_menu(), parse_mode="HTML")
@@ -212,7 +215,7 @@ async def show_instructions_cb(callback: CallbackQuery):
         await callback.message.edit_text("👇 <b>Выберите ваше устройство:</b>", reply_markup=inline.instructions_menu(), parse_mode="HTML")
 
 @user_router.callback_query(F.data.startswith("instr_"))
-async def show_device_instruction(callback: CallbackQuery):
+async def show_device_instruction(callback: CallbackQuery) -> None:
     device = callback.data.split("_")[1]
     
     texts = {
@@ -255,7 +258,7 @@ async def show_device_instruction(callback: CallbackQuery):
     await callback.message.edit_text(text, parse_mode="HTML", reply_markup=inline.back_btn("instr_main"), disable_web_page_preview=True)
 
 @user_router.message(F.text == "🤝 Партнерка")
-async def show_referral(message: Message):
+async def show_referral(message: Message) -> None:
     user_id = message.from_user.id
     bot_info = await message.bot.get_me()
     ref_link = f"https://t.me/{bot_info.username}?start={user_id}"
@@ -281,12 +284,12 @@ async def show_referral(message: Message):
     await message.answer(text, parse_mode="HTML", reply_markup=inline.back_btn("close"))
 
 @user_router.callback_query(F.data == "referral_info")
-async def show_referral_cb(callback: CallbackQuery):
+async def show_referral_cb(callback: CallbackQuery) -> None:
     await callback.message.delete()
     await show_referral(callback.message)
 
 @user_router.callback_query(F.data == "rules")
-async def show_rules(callback: CallbackQuery):
+async def show_rules(callback: CallbackQuery) -> None:
     text = (
         "📜 <b>ПОЛЬЗОВАТЕЛЬСКОЕ СОГЛАШЕНИЕ (ОФЕРТА)</b>\n\n"
         "<b>1. Общие положения</b>\n"
@@ -301,7 +304,7 @@ async def show_rules(callback: CallbackQuery):
     await callback.message.edit_text(text, parse_mode="HTML", reply_markup=inline.back_btn("open_tariffs"))
 
 @user_router.message(F.text == "🆘 Поддержка")
-async def support_info(message: Message):
+async def support_info(message: Message) -> None:
     text = (
         "📬 <b>Техническая поддержка</b>\n\n"
         "Вопросы по оплате или настройке:\n\n"
@@ -311,7 +314,7 @@ async def support_info(message: Message):
     await message.answer(text, parse_mode="HTML")
 
 @user_router.callback_query(F.data == "close")
-async def close_msg(callback: CallbackQuery):
+async def close_msg(callback: CallbackQuery) -> None:
     try:
         await callback.message.delete()
     except Exception as e:
