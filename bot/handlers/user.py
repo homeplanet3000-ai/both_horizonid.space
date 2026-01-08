@@ -1,16 +1,19 @@
-import time
 import datetime
+import logging
+import time
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.filters import CommandStart, CommandObject, Command
 
 from database import db
 from services.marzban import marzban_api
+from services.servers import get_active_server, get_server
 from keyboards import reply, inline
-from config import TRIAL_DAYS, TRIAL_LIMIT_BYTES, ADMIN_ID
+from config import TRIAL_DAYS, TRIAL_LIMIT_BYTES
 from utils.misc import generate_qr
 
 user_router = Router()
+logger = logging.getLogger(__name__)
 
 # ==========================================
 # 🚀 START & MAIN MENU
@@ -61,7 +64,10 @@ async def show_profile(message: Message):
     
     if sub_expire > now:
         # --- ПОДПИСКА АКТИВНА ---
-        key_link = await marzban_api.create_or_update_user(user_id, 0)
+        server_id = user["server_id"] if user["server_id"] else "default"
+        server = get_server(server_id)
+        base_url = server.get("marzban_url") if server else None
+        key_link = await marzban_api.create_or_update_user(user_id, 0, base_url=base_url)
         expire_date = datetime.datetime.fromtimestamp(sub_expire).strftime('%d.%m.%Y %H:%M')
         
         text = (
@@ -121,7 +127,10 @@ async def activate_trial(callback: CallbackQuery):
 
     await callback.message.answer("⏳ <b>Активирую тестовый доступ...</b>", parse_mode="HTML")
     
-    key_link = await marzban_api.create_or_update_user(user_id, TRIAL_LIMIT_BYTES)
+    active_server = get_active_server()
+    server_id = active_server["id"] if active_server else "default"
+    base_url = active_server.get("marzban_url") if active_server else None
+    key_link = await marzban_api.create_or_update_user(user_id, TRIAL_LIMIT_BYTES, base_url=base_url)
     
     if not key_link:
         await callback.message.answer("❌ Ошибка сервера VPN. Попробуйте позже.")
@@ -131,8 +140,8 @@ async def activate_trial(callback: CallbackQuery):
     
     async with db.get_db() as conn:
         await conn.execute(
-            "UPDATE users SET sub_expire = ?, trial_used = 1 WHERE user_id = ?", 
-            (new_expire, user_id)
+            "UPDATE users SET sub_expire = ?, trial_used = 1, server_id = ? WHERE user_id = ?",
+            (new_expire, server_id, user_id)
         )
         await conn.commit()
     
@@ -271,4 +280,5 @@ async def support_info(message: Message):
 async def close_msg(callback: CallbackQuery):
     try:
         await callback.message.delete()
-    except: pass
+    except Exception as e:
+        logger.debug("Не удалось удалить сообщение: %s", e)

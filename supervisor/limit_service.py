@@ -9,12 +9,13 @@ from loguru import logger
 from dotenv import load_dotenv
 
 # Загружаем настройки
-load_dotenv("/opt/marzban/.env")
+env_file = os.getenv("ENV_FILE", "/opt/marzban/.env")
+load_dotenv(env_file)
 
 # --- КОНФИГУРАЦИЯ ---
-LOG_FILE = "/var/lib/marzban/access.log"
-DB_FILE = "/app/policeman.db"
-PANEL_URL = "http://marzban:8000" # Внутренний адрес в Docker
+LOG_FILE = os.getenv("LOG_FILE", "/var/lib/marzban/access.log")
+DB_FILE = os.getenv("DB_FILE", "/app/policeman.db")
+PANEL_URL = os.getenv("PANEL_URL", "http://127.0.0.1:8000")
 ADMIN_USER = os.getenv("SUDO_USERNAME")
 ADMIN_PASS = os.getenv("SUDO_PASSWORD")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -58,9 +59,11 @@ def add_strike(username):
 # --- API MARZBAN ---
 def get_token():
     try:
-        resp = requests.post(f"{PANEL_URL}/api/admin/token", data={
-            "username": ADMIN_USER, "password": ADMIN_PASS
-        })
+        resp = requests.post(
+            f"{PANEL_URL}/api/admin/token",
+            data={"username": ADMIN_USER, "password": ADMIN_PASS},
+            timeout=10
+        )
         if resp.status_code == 200:
             return resp.json().get("access_token")
     except Exception as e:
@@ -69,39 +72,63 @@ def get_token():
 
 def ban_user(username, reason_msg):
     token = get_token()
-    if not token: return
+    if not token:
+        logger.warning("Skip ban: no Marzban token")
+        return
     
     headers = {"Authorization": f"Bearer {token}"}
     # Ставим статус disabled
-    requests.put(f"{PANEL_URL}/api/user/{username}", json={"status": "disabled"}, headers=headers)
+    requests.put(
+        f"{PANEL_URL}/api/user/{username}",
+        json={"status": "disabled"},
+        headers=headers,
+        timeout=10
+    )
     
     # Шлем уведомление в Telegram
+    if not BOT_TOKEN:
+        logger.warning("BOT_TOKEN is missing; cannot notify user %s", username)
+        return
     try:
         tg_id = username.replace("user_", "")
-        requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
-            "chat_id": tg_id,
-            "text": reason_msg,
-            "parse_mode": "HTML"
-        })
-    except:
-        pass
+        requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+            json={"chat_id": tg_id, "text": reason_msg, "parse_mode": "HTML"},
+            timeout=10
+        )
+    except Exception as e:
+        logger.warning("Failed to notify user %s: %s", username, e)
 
 def unban_user(username):
     token = get_token()
-    if not token: return
+    if not token:
+        logger.warning("Skip unban: no Marzban token")
+        return
     headers = {"Authorization": f"Bearer {token}"}
     # Возвращаем active
-    requests.put(f"{PANEL_URL}/api/user/{username}", json={"status": "active"}, headers=headers)
+    requests.put(
+        f"{PANEL_URL}/api/user/{username}",
+        json={"status": "active"},
+        headers=headers,
+        timeout=10
+    )
     
+    if not BOT_TOKEN:
+        logger.warning("BOT_TOKEN is missing; cannot notify user %s", username)
+        return
     try:
         tg_id = username.replace("user_", "")
-        requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={
-            "chat_id": tg_id,
-            "text": "✅ <b>Доступ восстановлен!</b>\nПожалуйста, соблюдайте правила (макс 2 устройства).",
-            "parse_mode": "HTML"
-        })
-    except:
-        pass
+        requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+            json={
+                "chat_id": tg_id,
+                "text": "✅ <b>Доступ восстановлен!</b>\nПожалуйста, соблюдайте правила (макс 2 устройства).",
+                "parse_mode": "HTML"
+            },
+            timeout=10
+        )
+    except Exception as e:
+        logger.warning("Failed to notify user %s: %s", username, e)
 
 # --- ФОНОВЫЙ ПРОЦЕСС РАЗБАНА ---
 def unban_worker():
@@ -193,7 +220,7 @@ def tail_logs():
                     active_sessions[user] = []
                     
             except Exception as e:
-                pass
+                logger.warning("Failed to process log line: %s", e)
 
 if __name__ == "__main__":
     init_db()

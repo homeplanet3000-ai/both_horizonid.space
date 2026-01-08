@@ -1,4 +1,5 @@
 import aiosqlite
+import logging
 import time
 import os
 
@@ -13,6 +14,7 @@ def get_db():
     return aiosqlite.connect(DB_PATH)
 
 # --- ИНИЦИАЛИЗАЦИЯ БАЗЫ ---
+logger = logging.getLogger(__name__)
 async def init_db():
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("PRAGMA journal_mode=WAL;")
@@ -28,6 +30,7 @@ async def init_db():
                 referrer_id INTEGER DEFAULT 0,
                 sub_expire INTEGER DEFAULT 0,
                 trial_used INTEGER DEFAULT 0,
+                server_id TEXT DEFAULT 'default',
                 registered_at INTEGER
             )
         """)
@@ -40,6 +43,7 @@ async def init_db():
                 user_id INTEGER,
                 amount REAL,
                 months INTEGER,
+                server_id TEXT DEFAULT 'default',
                 status TEXT DEFAULT 'pending',
                 created_at INTEGER
             )
@@ -59,6 +63,16 @@ async def init_db():
         
         await db.commit()
 
+        await _ensure_column(db, "users", "server_id", "TEXT DEFAULT 'default'")
+        await _ensure_column(db, "payments", "server_id", "TEXT DEFAULT 'default'")
+
+async def _ensure_column(db, table, column, column_def):
+    cursor = await db.execute(f"PRAGMA table_info({table})")
+    existing = await cursor.fetchall()
+    if any(row[1] == column for row in existing):
+        return
+    await db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_def}")
+
 # --- ФУНКЦИИ ДЛЯ ПОЛЬЗОВАТЕЛЯ ---
 
 async def add_user(user_id, username, full_name, referrer_id=0):
@@ -70,7 +84,8 @@ async def add_user(user_id, username, full_name, referrer_id=0):
             )
             await db.commit()
             return True
-        except:
+        except Exception as e:
+            logger.warning("Не удалось добавить пользователя %s: %s", user_id, e)
             return False
 
 async def get_user(user_id):

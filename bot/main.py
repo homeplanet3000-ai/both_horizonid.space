@@ -8,6 +8,7 @@ from config import BOT_TOKEN
 from database import db
 from handlers import user, pay, admin
 from services.scheduler import scheduler_loop
+from services.servers import health_check_loop
 
 # Настройка логирования
 logging.basicConfig(
@@ -41,6 +42,7 @@ async def main():
     
     # Запуск планировщика в фоне (проверка подписок)
     asyncio.create_task(scheduler_loop(bot))
+    asyncio.create_task(health_check_loop())
     
     try:
         await dp.start_polling(bot)
