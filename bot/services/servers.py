@@ -1,9 +1,16 @@
 import asyncio
 import logging
+import time
 
 import aiohttp
 
-from config import SERVERS
+from config import (
+    HEALTHCHECK_INTERVAL_SECONDS,
+    HEALTHCHECK_LATENCY_DOWN_MS,
+    HEALTHCHECK_LATENCY_WARN_MS,
+    HEALTHCHECK_TIMEOUT_SECONDS,
+    SERVERS,
+)
 from services.alerts import send_alert
 from services.failover import update_dns
 
@@ -14,6 +21,7 @@ STATUS_WARN = "warn"
 STATUS_DOWN = "down"
 
 _server_status = {server["id"]: STATUS_OK for server in SERVERS}
+_server_latency_ms = {server["id"]: None for server in SERVERS}
 _active_server_id = None
 
 
@@ -30,6 +38,7 @@ def get_servers():
         {
             **server,
             "status": _server_status.get(server["id"], STATUS_WARN),
+            "latency_ms": _server_latency_ms.get(server["id"]),
         }
         for server in SERVERS
     ]
@@ -55,16 +64,27 @@ async def _check_server(session: aiohttp.ClientSession, server: dict):
     if not url:
         return STATUS_WARN
     try:
-        async with session.get(url, timeout=10) as resp:
-            if resp.status == 200:
-                return STATUS_OK
-            return STATUS_WARN
+        timeout_seconds = float(server.get("health_check_timeout") or HEALTHCHECK_TIMEOUT_SECONDS)
+        warn_ms = int(server.get("latency_warn_ms") or HEALTHCHECK_LATENCY_WARN_MS)
+        down_ms = int(server.get("latency_down_ms") or HEALTHCHECK_LATENCY_DOWN_MS)
+        start = time.monotonic()
+        async with session.get(url, timeout=timeout_seconds) as resp:
+            latency_ms = int((time.monotonic() - start) * 1000)
+            _server_latency_ms[server["id"]] = latency_ms
+            if resp.status != 200:
+                return STATUS_DOWN
+            if latency_ms >= down_ms:
+                return STATUS_DOWN
+            if latency_ms >= warn_ms:
+                return STATUS_WARN
+            return STATUS_OK
     except Exception as e:
         logger.warning("Health check failed for %s: %s", server.get("id"), e)
+        _server_latency_ms[server["id"]] = None
         return STATUS_DOWN
 
 
-async def health_check_loop(interval_seconds: int = 300):
+async def health_check_loop(interval_seconds: int = HEALTHCHECK_INTERVAL_SECONDS):
     while True:
         async with aiohttp.ClientSession() as session:
             tasks = [asyncio.create_task(_check_server(session, server)) for server in SERVERS]
@@ -73,12 +93,20 @@ async def health_check_loop(interval_seconds: int = 300):
                 previous = _server_status.get(server["id"])
                 _server_status[server["id"]] = status
                 if previous and previous != status:
-                    await send_alert(f"⚡ Сервер <b>{server['id']}</b> сменил статус: {status}")
+                    latency_ms = _server_latency_ms.get(server["id"])
+                    latency_note = f" ({latency_ms} ms)" if latency_ms is not None else ""
+                    await send_alert(f"⚡ Сервер <b>{server['id']}</b> сменил статус: {status}{latency_note}")
         active_server = get_active_server()
         if active_server:
             global _active_server_id
             if _active_server_id != active_server["id"]:
-                _active_server_id = active_server["id"]
-                await send_alert(f"🔁 Активный сервер: <b>{active_server['id']}</b>")
-                await update_dns(active_server.get("public_ip"))
+                update_success = await update_dns(active_server.get("public_ip"))
+                if update_success:
+                    _active_server_id = active_server["id"]
+                    await send_alert(f"🔁 Активный сервер: <b>{active_server['id']}</b>")
+                else:
+                    await send_alert(
+                        f"⚠️ Не удалось переключить DNS на <b>{active_server['id']}</b>. "
+                        "Проверьте Cloudflare."
+                    )
         await asyncio.sleep(interval_seconds)
