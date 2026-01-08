@@ -49,6 +49,20 @@ async def init_db():
             )
         """)
 
+        # 4. Таблица подписок (несколько подписок на пользователя)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS subscriptions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                server_id TEXT DEFAULT 'default',
+                link TEXT,
+                data_limit_bytes INTEGER DEFAULT 0,
+                expire_at INTEGER DEFAULT 0,
+                is_trial INTEGER DEFAULT 0,
+                created_at INTEGER
+            )
+        """)
+
         # 3. Таблица транзакций
         await db.execute("""
             CREATE TABLE IF NOT EXISTS transactions (
@@ -104,6 +118,39 @@ async def add_transaction(user_id, amount, t_type, comment):
             (user_id, amount, t_type, comment, int(time.time()))
         )
         await db.commit()
+
+# --- ФУНКЦИИ ПОДПИСОК ---
+
+async def add_subscription(user_id, server_id, link, data_limit_bytes, expire_at, is_trial):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """
+            INSERT INTO subscriptions (user_id, server_id, link, data_limit_bytes, expire_at, is_trial, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (user_id, server_id, link, data_limit_bytes, expire_at, int(is_trial), int(time.time()))
+        )
+        await db.commit()
+
+async def get_active_subscriptions(user_id):
+    now = int(time.time())
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM subscriptions WHERE user_id = ? AND expire_at > ? ORDER BY expire_at DESC",
+            (user_id, now)
+        ) as cursor:
+            return await cursor.fetchall()
+
+async def get_expired_subscriptions():
+    now = int(time.time())
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM subscriptions WHERE expire_at > 0 AND expire_at <= ?",
+            (now,)
+        ) as cursor:
+            return await cursor.fetchall()
 
 # --- ФУНКЦИИ ДЛЯ АДМИНКИ ---
 

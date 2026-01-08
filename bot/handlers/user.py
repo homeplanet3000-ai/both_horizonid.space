@@ -68,14 +68,33 @@ async def show_profile(message: Message):
         server = get_server(server_id)
         base_url = server.get("marzban_url") if server else None
         key_link = await marzban_api.create_or_update_user(user_id, 0, base_url=base_url)
+        user_info = await marzban_api.get_user_info(f"user_{user_id}", base_url=base_url)
+        used_bytes = user_info.get("used_traffic") if user_info else None
+        limit_bytes = user_info.get("data_limit") if user_info else None
+        usage_line = ""
+        if used_bytes is not None and limit_bytes:
+            used_gb = used_bytes / (1024 ** 3)
+            limit_gb = limit_bytes / (1024 ** 3)
+            percent = (used_bytes / limit_bytes) * 100 if limit_bytes else 0
+            usage_line = f"📊 Трафик: <b>{used_gb:.2f}/{limit_gb:.2f} ГБ</b> ({percent:.0f}%)\n"
+        active_subs = await db.get_active_subscriptions(user_id)
         expire_date = datetime.datetime.fromtimestamp(sub_expire).strftime('%d.%m.%Y %H:%M')
         
+        subs_lines = []
+        for sub in active_subs[:10]:
+            expire_date_sub = datetime.datetime.fromtimestamp(sub["expire_at"]).strftime('%d.%m.%Y')
+            subs_lines.append(f"• {expire_date_sub} — {sub['server_id']}")
+        subs_block = "\n".join(subs_lines) if subs_lines else "—"
+
         text = (
             f"👤 <b>Личный кабинет</b>\n"
             f"➖➖➖➖➖➖➖➖➖➖\n"
             f"🆔 ID: <code>{user_id}</code>\n"
             f"💰 Баланс: <b>{balance:.2f} ₽</b>\n"
-            f"✅ <b>Подписка активна до:</b> {expire_date}\n\n"
+            f"✅ <b>Подписка активна до:</b> {expire_date}\n"
+            f"{usage_line}\n"
+            f"📦 <b>Подписок:</b> {len(active_subs)}\n"
+            f"{subs_block}\n\n"
             f"🔑 <b>Ваш ключ доступа:</b>\n"
             f"<code>{key_link}</code>\n\n"
             f"<i>Нажмите на ключ, чтобы скопировать.</i>"
@@ -144,6 +163,14 @@ async def activate_trial(callback: CallbackQuery):
             (new_expire, server_id, user_id)
         )
         await conn.commit()
+    await db.add_subscription(
+        user_id=user_id,
+        server_id=server_id,
+        link=key_link,
+        data_limit_bytes=TRIAL_LIMIT_BYTES,
+        expire_at=new_expire,
+        is_trial=True
+    )
     
     text = (
         f"🎁 <b>Тестовый период активирован!</b>\n"

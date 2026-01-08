@@ -26,6 +26,7 @@ _DEFAULT_SERVERS = [
         "name": "Основной сервер",
         "flag": "🌍",
         "marzban_url": MARZBAN_URL,
+        "public_ip": os.getenv("DEFAULT_SERVER_PUBLIC_IP"),
         "health_check_url": os.getenv("MARZBAN_HEALTHCHECK_URL", f"{MARZBAN_URL}/api/system"),
     }
 ]

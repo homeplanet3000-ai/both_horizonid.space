@@ -64,6 +64,11 @@ async def create_order(callback: CallbackQuery):
         await callback.answer("Тариф не найден", show_alert=True)
         return
 
+    server = get_server(server_id)
+    if not server:
+        await callback.answer("Сервер не найден", show_alert=True)
+        return
+
     user_id = callback.from_user.id
     order_id = str(uuid.uuid4())
 
@@ -126,6 +131,14 @@ async def check_payment(callback: CallbackQuery):
         await process_success_payment(callback.message, user_id, months, amount, order_id, "AAIO", server_id)
     else:
         await callback.answer("❌ Оплата пока не поступила. Попробуйте через минуту.", show_alert=True)
+
+# ==========================================
+# 3.1 ЗАГЛУШКА TELEGRAM STARS
+# ==========================================
+
+@pay_router.callback_query(F.data.startswith("pay_stars_"))
+async def pay_with_stars(callback: CallbackQuery):
+    await callback.answer("⭐ Оплата Telegram Stars скоро появится!", show_alert=True)
 
 # ==========================================
 # 4. ОПЛАТА БАЛАНСОМ (ИСПРАВЛЕНО)
@@ -226,7 +239,17 @@ async def process_success_payment(message: Message, user_id: int, months: int, a
     # 3. Активируем в Marzban
     server = get_server(server_id)
     base_url = server.get("marzban_url") if server else None
-    await marzban_api.create_or_update_user(user_id, 0, base_url=base_url)
+    key_link = await marzban_api.create_or_update_user(user_id, 0, base_url=base_url)
+
+    # 3.1 Записываем подписку
+    await db.add_subscription(
+        user_id=user_id,
+        server_id=server_id,
+        link=key_link,
+        data_limit_bytes=0,
+        expire_at=new_expire,
+        is_trial=False
+    )
     
     # 4. Реферальная система (только для AAIO)
     if referrer_id and referrer_id != 0 and method == "AAIO":
