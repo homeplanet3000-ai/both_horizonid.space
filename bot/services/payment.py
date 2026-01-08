@@ -1,4 +1,6 @@
 import hashlib
+from urllib.parse import urlencode
+
 import aiohttp
 from loguru import logger
 from config import AAIO_MERCHANT_ID, AAIO_SECRET_1, AAIO_API_KEY
@@ -13,16 +15,16 @@ class PaymentService:
         sign_str = f"{AAIO_MERCHANT_ID}:{amount}:{currency}:{AAIO_SECRET_1}:{order_id}"
         sign = hashlib.sha256(sign_str.encode('utf-8')).hexdigest()
 
-        url = (
-            f"https://aaio.so/merchant/pay?"
-            f"merchant_id={AAIO_MERCHANT_ID}&"
-            f"amount={amount}&"
-            f"currency={currency}&"
-            f"order_id={order_id}&"
-            f"sign={sign}&"
-            f"desc={desc}&"
-            f"email={email}"
-        )
+        params = {
+            "merchant_id": AAIO_MERCHANT_ID,
+            "amount": amount,
+            "currency": currency,
+            "order_id": order_id,
+            "sign": sign,
+            "desc": desc,
+            "email": email,
+        }
+        url = f"https://aaio.so/merchant/pay?{urlencode(params)}"
         return url
 
     @staticmethod
