@@ -8,10 +8,7 @@ services:
     container_name: marzban
     restart: always
     env_file: .env
-    networks:
-      - marzban-net
-    ports:
-      - "127.0.0.1:8000:8000"
+    network_mode: host
     volumes:
       - /var/lib/marzban:/var/lib/marzban
       - /opt/marzban/xray_config/xray_config.json:/var/lib/marzban/xray_config.json
@@ -27,10 +24,7 @@ services:
     image: mariadb:10.11
     container_name: marzban-mariadb
     restart: always
-    networks:
-      - marzban-net
-    ports:
-      - "127.0.0.1:3306:3306"
+    network_mode: host
     environment:
       MARIADB_ROOT_PASSWORD_FILE: /run/secrets/mariadb_root_password
       MARIADB_DATABASE: marzban
@@ -51,11 +45,7 @@ services:
     image: nginx:1.26.2
     container_name: nginx-gateway
     restart: always
-    networks:
-      - marzban-net
-    ports:
-      - "80:80"
-      - "443:443"
+    network_mode: host
     volumes:
       - /opt/marzban/nginx_conf:/etc/nginx/conf.d
       - /etc/letsencrypt:/etc/letsencrypt
@@ -69,10 +59,7 @@ services:
     image: caomingjun/warp:latest
     container_name: warp-socks5
     restart: always
-    networks:
-      - marzban-net
-    ports:
-      - "127.0.0.1:1080:1080"
+    network_mode: host
     environment:
       WARP_SLEEP: 2
       # GOST нужен, если мы хотим использовать warp как socks5 прокси на порту 1080
@@ -88,8 +75,7 @@ services:
     image: marzban-vpn-bot
     container_name: vpn_bot
     restart: always
-    networks:
-      - marzban-net
+    network_mode: host
     env_file: .env
     volumes:
       - ./bot:/app
@@ -101,10 +87,7 @@ services:
     image: louislam/uptime-kuma:1
     container_name: uptime-kuma
     restart: always
-    networks:
-      - marzban-net
-    ports:
-      - "127.0.0.1:3001:3001"
+    network_mode: host
     volumes:
       - uptime-kuma:/app/data
 
@@ -113,8 +96,7 @@ services:
     build: ./supervisor
     container_name: marzban-policeman
     restart: always
-    networks:
-      - marzban-net
+    network_mode: host
     env_file: .env
     volumes:
       # Ему нужен доступ к логам Marzban, чтобы видеть IP
@@ -130,8 +112,7 @@ services:
     container_name: marzban-supervisor
     restart: always
     env_file: .env
-    networks:
-      - marzban-net
+    network_mode: host
     volumes:
       - /var/lib/marzban:/var/lib/marzban:ro
     depends_on:
@@ -143,7 +124,3 @@ volumes:
 secrets:
   mariadb_root_password:
     file: ./secrets/mariadb_root_password
-
-networks:
-  marzban-net:
-    driver: bridge
