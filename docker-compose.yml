@@ -1,0 +1,120 @@
+services:
+  # --- Core: Marzban ---
+  marzban:
+    build:
+      context: .
+      dockerfile: Dockerfile.core
+    image: marzban-mysql:latest
+    container_name: marzban
+    restart: always
+    env_file: .env
+    network_mode: host
+    volumes:
+      - /var/lib/marzban:/var/lib/marzban
+      - /opt/marzban/xray_config/xray_config.json:/var/lib/marzban/xray_config.json
+      - /var/log/marzban:/var/log/marzban
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      warp:
+        condition: service_started
+
+  # --- Database: MariaDB ---
+  mariadb:
+    image: mariadb:10.11
+    container_name: marzban-mariadb
+    restart: always
+    network_mode: host
+    environment:
+      MARIADB_ROOT_PASSWORD: RootSuperPassword123
+      MARIADB_DATABASE: marzban
+      MARIADB_USER: marzban
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - /opt/marzban/mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # --- Gateway: Nginx (МЫ ВЕРНУЛИ ЕГО!) ---
+  nginx:
+    image: nginx:latest
+    container_name: nginx-gateway
+    restart: always
+    network_mode: host
+    volumes:
+      - /opt/marzban/nginx_conf:/etc/nginx/conf.d
+      - /etc/letsencrypt:/etc/letsencrypt
+      - /var/www/html:/var/www/html
+      - /var/log/nginx:/var/log/nginx
+    depends_on:
+      - marzban
+
+  # --- Proxy: WARP ---
+  warp:
+    image: caomingjun/warp:latest
+    container_name: warp-socks5
+    restart: always
+    network_mode: host
+    environment:
+      WARP_SLEEP: 2
+      # GOST нужен, если мы хотим использовать warp как socks5 прокси на порту 1080
+      GOST_ARGS: "-L :1080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "https://www.cloudflare.com/cdn-cgi/trace"]
+      interval: 30s
+      retries: 3
+
+  # --- Telegram Bot ---
+  vpn-bot:
+    build: ./bot
+    image: marzban-vpn-bot
+    container_name: vpn_bot
+    restart: always
+    network_mode: host
+    env_file: .env
+    volumes:
+      - ./bot:/app
+    depends_on:
+      - marzban
+
+  # --- Monitoring: Uptime Kuma (Из твоего старого файла) ---
+  uptime-kuma:
+    image: louislam/uptime-kuma:1
+    container_name: uptime-kuma
+    restart: always
+    network_mode: host
+    volumes:
+      - uptime-kuma:/app/data
+
+  # --- Policeman (Надзиратель за лимитами) ---
+  policeman:
+    build: ./supervisor
+    container_name: marzban-policeman
+    restart: always
+    network_mode: host
+    env_file: .env
+    volumes:
+      # Ему нужен доступ к логам Marzban, чтобы видеть IP
+      - /var/lib/marzban:/var/lib/marzban
+      # База данных нарушителей (сохраняем внутри папки supervisor)
+      - ./supervisor:/app
+    depends_on:
+      - marzban
+
+# --- Supervisor (Надзиратель) ---
+  supervisor:
+    build: ./supervisor
+    container_name: marzban-supervisor
+    restart: always
+    env_file: .env
+    network_mode: host
+    volumes:
+      - /var/lib/marzban:/var/lib/marzban:ro
+    depends_on:
+      - marzban
+
+volumes:
+  uptime-kuma:

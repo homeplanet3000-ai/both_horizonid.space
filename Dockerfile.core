@@ -1,0 +1,5 @@
+FROM gozargah/marzban:latest
+
+# Установка драйверов для MySQL и криптографии
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir pymysql cryptography
