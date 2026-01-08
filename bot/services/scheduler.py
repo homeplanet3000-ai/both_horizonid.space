@@ -2,6 +2,7 @@ import asyncio
 import logging
 import time
 from aiogram import Bot
+
 from config import SUB_ALERT_DAYS_1, SUB_ALERT_DAYS_3, SUB_ALERT_WINDOW_SECONDS, TRAFFIC_ALERT_PERCENT
 from database import db
 from services.marzban import marzban_api
@@ -9,7 +10,7 @@ from services.servers import get_server
 
 logger = logging.getLogger(__name__)
 
-async def check_subscriptions(bot: Bot):
+async def check_subscriptions(bot: Bot) -> None:
     """Проверка истекших подписок и уведомления"""
     now = int(time.time())
     one_day = 86400
@@ -104,12 +105,14 @@ async def check_subscriptions(bot: Bot):
                                 await conn.commit()
                         except Exception as e:
                             logger.warning("Не удалось отправить алерт по трафику пользователю %s: %s", user_id, e)
-async def scheduler_loop(bot: Bot):
+
+
+async def scheduler_loop(bot: Bot) -> None:
     while True:
         try:
             await check_subscriptions(bot)
-        except Exception as e:
-            logger.error("Scheduler Error: %s", e)
+        except Exception:
+            logger.exception("Scheduler Error")
         
         # Ждем 1 час (3600 секунд)
         await asyncio.sleep(3600)

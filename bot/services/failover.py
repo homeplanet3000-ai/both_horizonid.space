@@ -16,7 +16,7 @@ from config import (
 logger = logging.getLogger(__name__)
 
 
-async def update_dns(target_ip: str):
+async def update_dns(target_ip: str) -> bool:
     if not (CLOUDFLARE_API_TOKEN and CLOUDFLARE_ZONE_ID and CLOUDFLARE_RECORD_ID):
         logger.info("Cloudflare credentials missing; skip DNS update")
         return False

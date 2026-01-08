@@ -16,18 +16,18 @@ logger = logging.getLogger(__name__)
 
 # --- Состояния (шаги диалога) ---
 class AdminState(StatesGroup):
-    waiting_for_id = State()      # Ждем ID пользователя
+    waiting_for_id = State()  # Ждем ID пользователя
     waiting_for_amount = State()  # Ждем сумму денег
-    waiting_for_broadcast = State() # Ждем текст рассылки
+    waiting_for_broadcast = State()  # Ждем текст рассылки
 
 # --- Проверка: Админ или нет? ---
-def is_admin(user_id):
+def is_admin(user_id: int) -> bool:
     return user_id == ADMIN_ID
 
 # 👑 ГЛАВНОЕ МЕНЮ АДМИНА
 @admin_router.message(Command("admin"))
 @admin_router.message(F.text == "👑 Админ-панель")
-async def admin_menu(message: types.Message):
+async def admin_menu(message: types.Message) -> None:
     if not is_admin(message.from_user.id):
         return # Игнорируем чужаков
 
@@ -55,12 +55,12 @@ async def admin_menu(message: types.Message):
 
 # --- ЛОГИКА ВЫДАЧИ ДЕНЕГ ---
 @admin_router.callback_query(F.data == "admin_money")
-async def start_money(call: types.CallbackQuery, state: FSMContext):
+async def start_money(call: types.CallbackQuery, state: FSMContext) -> None:
     await call.message.edit_text("👤 Введите **Telegram ID** пользователя (цифрами):")
     await state.set_state(AdminState.waiting_for_id)
 
 @admin_router.message(AdminState.waiting_for_id)
-async def get_user_id(message: types.Message, state: FSMContext):
+async def get_user_id(message: types.Message, state: FSMContext) -> None:
     if not message.text.isdigit():
         await message.answer("❌ Это не цифры. Попробуйте снова.")
         return
@@ -70,7 +70,7 @@ async def get_user_id(message: types.Message, state: FSMContext):
     await state.set_state(AdminState.waiting_for_amount)
 
 @admin_router.message(AdminState.waiting_for_amount)
-async def give_money(message: types.Message, state: FSMContext):
+async def give_money(message: types.Message, state: FSMContext) -> None:
     if not message.text.isdigit():
         await message.answer("❌ Сумма должна быть числом.")
         return
@@ -96,7 +96,7 @@ async def give_money(message: types.Message, state: FSMContext):
 
 # --- ЛОГИКА РАССЫЛКИ ---
 @admin_router.callback_query(F.data == "admin_broadcast")
-async def start_broadcast(call: types.CallbackQuery, state: FSMContext):
+async def start_broadcast(call: types.CallbackQuery, state: FSMContext) -> None:
     await call.message.edit_text(
         "📢 **Режим рассылки**\n\n"
         "Отправьте сообщение (текст, фото или видео), которое получат ВСЕ пользователи.",
@@ -105,7 +105,7 @@ async def start_broadcast(call: types.CallbackQuery, state: FSMContext):
     await state.set_state(AdminState.waiting_for_broadcast)
 
 @admin_router.message(AdminState.waiting_for_broadcast)
-async def process_broadcast(message: types.Message, state: FSMContext):
+async def process_broadcast(message: types.Message, state: FSMContext) -> None:
     users = await get_all_users()
     count = 0
     
@@ -125,5 +125,5 @@ async def process_broadcast(message: types.Message, state: FSMContext):
 
 # --- ЗАКРЫТЬ ---
 @admin_router.callback_query(F.data == "close_admin")
-async def close(call: types.CallbackQuery):
+async def close(call: types.CallbackQuery) -> None:
     await call.message.delete()

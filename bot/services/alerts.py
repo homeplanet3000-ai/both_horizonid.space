@@ -1,17 +1,18 @@
 import logging
+from typing import Optional, Union
 
 import aiohttp
 
-from config import BOT_TOKEN, CHANNEL_LOGS, ADMIN_ID
+from config import ADMIN_ID, BOT_TOKEN, CHANNEL_LOGS
 
 logger = logging.getLogger(__name__)
 
 
-async def send_alert(message: str):
+async def send_alert(message: str) -> None:
     if not BOT_TOKEN:
         logger.warning("BOT_TOKEN missing; cannot send alert")
         return
-    chat_id = CHANNEL_LOGS or ADMIN_ID
+    chat_id: Optional[Union[str, int]] = CHANNEL_LOGS or ADMIN_ID
     if not chat_id:
         logger.warning("No alert target configured")
         return

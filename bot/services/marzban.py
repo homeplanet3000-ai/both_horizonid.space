@@ -1,4 +1,6 @@
 import asyncio
+from typing import Any, Dict, Optional
+
 import aiohttp
 from loguru import logger
 from config import (
@@ -14,11 +16,11 @@ from config import (
 )
 
 class MarzbanAPI:
-    def __init__(self):
+    def __init__(self) -> None:
         self.base_url = MARZBAN_URL
-        self.tokens = {}
+        self.tokens: Dict[str, str] = {}
 
-    async def get_token(self, base_url=None):
+    async def get_token(self, base_url: Optional[str] = None) -> Optional[str]:
         """Получение токена администратора"""
         url = f"{base_url or self.base_url}/api/admin/token"
         data = {"username": MARZBAN_USERNAME, "password": MARZBAN_PASSWORD}
@@ -43,7 +45,13 @@ class MarzbanAPI:
                 return None
         return None
 
-    async def _request(self, method, endpoint, json=None, base_url=None):
+    async def _request(
+        self,
+        method: str,
+        endpoint: str,
+        json: Optional[Dict[str, Any]] = None,
+        base_url: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
         """Внутренний метод для запросов с авто-обновлением токена"""
         base = base_url or self.base_url
         token = self.tokens.get(base)
@@ -82,7 +90,7 @@ class MarzbanAPI:
                 return None
         return None
 
-    async def _handle_response(self, resp):
+    async def _handle_response(self, resp: aiohttp.ClientResponse) -> Optional[Dict[str, Any]]:
         if resp.status in [200, 201]:
             return await resp.json()
         elif resp.status == 409: # Пользователь уже существует
@@ -91,7 +99,12 @@ class MarzbanAPI:
             logger.error(f"API Error {resp.status}: {await resp.text()}")
             return None
 
-    async def create_or_update_user(self, user_id: int, data_limit_bytes: int = 0, base_url=None):
+    async def create_or_update_user(
+        self,
+        user_id: int,
+        data_limit_bytes: int = 0,
+        base_url: Optional[str] = None,
+    ) -> Optional[str]:
         """Создает или обновляет пользователя. data_limit=0 это безлимит."""
         username = f"user_{user_id}"
         proxy_settings = {"flow": VLESS_FLOW} if VLESS_FLOW else {}
@@ -123,13 +136,13 @@ class MarzbanAPI:
 
         return self._extract_link(res)
 
-    async def get_user_info(self, username, base_url=None):
+    async def get_user_info(self, username: str, base_url: Optional[str] = None) -> Optional[Dict[str, Any]]:
         return await self._request("GET", f"user/{username}", base_url=base_url)
 
-    def extract_link(self, user_info):
+    def extract_link(self, user_info: Optional[Dict[str, Any]]) -> Optional[str]:
         return self._extract_link(user_info)
 
-    def _extract_link(self, user_data):
+    def _extract_link(self, user_data: Optional[Dict[str, Any]]) -> Optional[str]:
         """Вытаскивает VLESS ссылку и меняет IP на домен"""
         if not user_data or "links" not in user_data:
             return None
