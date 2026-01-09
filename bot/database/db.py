@@ -63,7 +63,8 @@ async def init_db() -> None:
                 months INTEGER,
                 server_id TEXT DEFAULT 'default',
                 status TEXT DEFAULT 'pending',
-                created_at INTEGER
+                created_at INTEGER,
+                pending_reminder_sent INTEGER DEFAULT 0
             )
         """)
 
@@ -92,6 +93,18 @@ async def init_db() -> None:
                 created_at INTEGER
             )
         """)
+
+        # 5. Таблица событий контента
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS message_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                message_key TEXT,
+                variant TEXT,
+                event TEXT,
+                created_at INTEGER
+            )
+        """)
         
         await db.commit()
 
@@ -101,9 +114,11 @@ async def init_db() -> None:
         await _ensure_column(db, "users", "alert_sub_1d_sent", "INTEGER DEFAULT 0")
         await _ensure_column(db, "users", "alert_traffic_90_sent", "INTEGER DEFAULT 0")
         await _ensure_column(db, "users", "referrer_id", "INTEGER DEFAULT 0")
+        await _ensure_column(db, "users", "welcome_variant", "TEXT")
         await _ensure_index(db, "users_user_id_idx", "users", "user_id")
         await _ensure_index(db, "payments_order_id_idx", "payments", "order_id")
         await _ensure_index(db, "subscriptions_user_expire_idx", "subscriptions", "user_id, expire_at")
+        await _ensure_column(db, "payments", "pending_reminder_sent", "INTEGER DEFAULT 0")
 
 async def _ensure_column(db: aiosqlite.Connection, table: str, column: str, column_def: str) -> None:
     cursor = await db.execute(f"PRAGMA table_info({table})")
@@ -155,6 +170,31 @@ async def add_transaction(user_id: int, amount: float, t_type: str, comment: str
         await db.execute(
             "INSERT INTO transactions (user_id, amount, type, comment, created_at) VALUES (?, ?, ?, ?, ?)",
             (user_id, amount, t_type, comment, int(time.time()))
+        )
+        await db.commit()
+
+async def add_message_event(user_id: int, message_key: str, variant: str, event: str) -> None:
+    async with get_db() as db:
+        await db.execute(
+            "INSERT INTO message_events (user_id, message_key, variant, event, created_at) VALUES (?, ?, ?, ?, ?)",
+            (user_id, message_key, variant, event, int(time.time())),
+        )
+        await db.commit()
+
+async def get_user_welcome_variant(user_id: int) -> Optional[str]:
+    async with get_db() as db:
+        async with db.execute(
+            "SELECT welcome_variant FROM users WHERE user_id = ?",
+            (user_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+            return row[0] if row and row[0] else None
+
+async def set_user_welcome_variant(user_id: int, variant: str) -> None:
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE users SET welcome_variant = ? WHERE user_id = ?",
+            (variant, user_id),
         )
         await db.commit()
 
