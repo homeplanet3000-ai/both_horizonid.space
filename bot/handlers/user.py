@@ -323,6 +323,42 @@ async def support_info(message: Message) -> None:
     )
     await message.answer(text, parse_mode="HTML")
 
+@user_router.message(F.text == "🧠 Blueprint")
+async def show_blueprint(message: Message) -> None:
+    text = (
+        "🧠 <b>The System Architect Mindset (The Blueprint)</b>\n"
+        "<i>\"The system must survive if I get hit by a bus. It must scale if 100,000 users join tomorrow.\"</i>\n\n"
+        "<b>Decoupling (Frontend vs. Backend):</b>\n"
+        "• <b>Frontend:</b> The Telegram Bot (Python/Go). It handles buttons, payments, and user support. It never touches the traffic.\n"
+        "• <b>Backend:</b> The VPN Nodes (servers in Netherlands, USA, Germany).\n"
+        "<b>The Bridge:</b> An API. When the Bot receives payment, it sends a request to the API → The API talks to the server → "
+        "The server generates a key → The Bot delivers the key.\n\n"
+        "<b>Infrastructure as Code (IaC):</b>\n"
+        "Never configure a server manually.\n"
+        "<b>Architect Thought:</b> Cattle, not pets.\n"
+        "If a server (IP) gets blocked by a censor, you destroy it and spin up a new one automatically using scripts "
+        "(Ansible/Terraform). The user shouldn't even notice.\n\n"
+        "<b>Protocol Agnosticism:</b>\n"
+        "Censorship evolves. Your tech must evolve.\n"
+        "Don't marry one protocol. Build a system that supports WireGuard, VLESS (Reality), and Shadowsocks.\n"
+        "<b>Architect Thought:</b> Redundancy. If Protocol A is blocked, the bot automatically suggests Protocol B.\n\n"
+        "🧩 <b>The Synthesis: How to execute this today</b>\n"
+        "<b>Phase 1: The MVP (Minimum Viable Product)</b>\n"
+        "Tech: Python (aiogram), SQLite database, one VP server (VLESS-Reality protocol).\n"
+        "Business: Sell to 50 people manually to test pricing.\n"
+        "Mindset: \"Does the product work?\"\n\n"
+        "<b>Phase 2: The Scalable System</b>\n"
+        "Tech: Move to PostgreSQL. Add a panel (like Marzban or 3X-UI) to manage users via API. "
+        "Separate the bot code from the server management.\n"
+        "Business: Automate crypto payments.\n"
+        "Mindset: \"Can I handle 1,000 users without sleeping?\"\n\n"
+        "<b>Phase 3: The Super App Ecosystem</b>\n"
+        "Tech: Load Balancers. Multiple locations. Smart routing (Netflix goes via US, Instagram via EU).\n"
+        "Business: Paid ads. Affiliate partnerships with other Telegram channels.\n"
+        "Mindset: \"Total Market Dominance.\""
+    )
+    await message.answer(text, parse_mode="HTML")
+
 @user_router.callback_query(F.data == "close")
 async def close_msg(callback: CallbackQuery) -> None:
     try:
