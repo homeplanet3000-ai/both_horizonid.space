@@ -57,7 +57,7 @@ def payment_menu(url: str, order_id: str, amount: float, user_balance: float):
 
     # 1. Ссылка на кассу
     kb.append([InlineKeyboardButton(text="💳 Оплатить картой/криптой", url=url)])
-    kb.append([InlineKeyboardButton(text="⭐ Оплатить Telegram Stars (скоро)", callback_data=f"pay_stars_{order_id}")])
+    kb.append([InlineKeyboardButton(text="⭐ Оплатить звездами Telegram (скоро)", callback_data=f"pay_stars_{order_id}")])
 
     # 2. Оплата балансом (если хватает денег)
     if user_balance >= amount:

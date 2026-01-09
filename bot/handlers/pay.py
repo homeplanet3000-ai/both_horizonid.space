@@ -139,6 +139,11 @@ async def check_payment(callback: CallbackQuery) -> None:
 
         status, user_id, months, amount, server_id = payment
 
+        if user_id != callback.from_user.id:
+            await conn.rollback()
+            await callback.answer("❌ Этот счет принадлежит другому пользователю.", show_alert=True)
+            return
+
         if status == "paid":
             await conn.rollback()
             await callback.answer("✅ Этот счет уже оплачен!", show_alert=True)
@@ -188,7 +193,7 @@ async def check_payment(callback: CallbackQuery) -> None:
 
 @pay_router.callback_query(F.data.startswith("pay_stars_"))
 async def pay_with_stars(callback: CallbackQuery) -> None:
-    await callback.answer("⭐ Оплата Telegram Stars скоро появится!", show_alert=True)
+    await callback.answer("⭐ Оплата звездами Telegram скоро появится!", show_alert=True)
 
 # ==========================================
 # 4. ОПЛАТА БАЛАНСОМ (ИСПРАВЛЕНО)
@@ -213,6 +218,11 @@ async def pay_with_balance(callback: CallbackQuery) -> None:
                 return
                 
             p_user_id, p_amount, p_months, p_status, p_server_id = payment
+
+            if p_user_id != callback.from_user.id:
+                await conn.rollback()
+                await callback.answer("❌ Этот счет принадлежит другому пользователю.", show_alert=True)
+                return
             
             if p_status == 'paid':
                 await conn.rollback()

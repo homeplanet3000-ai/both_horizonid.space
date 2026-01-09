@@ -20,7 +20,7 @@ class PaymentService:
     @staticmethod
     def generate_url(amount: float, order_id: str, email: str) -> Optional[str]:
         currency = "RUB"
-        desc = f"Order {order_id}"
+        desc = f"Заказ {order_id}"
         if not (AAIO_MERCHANT_ID and AAIO_SECRET_1):
             logger.error("AAIO credentials missing; cannot generate payment URL")
             return None

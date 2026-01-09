@@ -8,6 +8,23 @@ from dotenv import load_dotenv
 load_dotenv()
 logger = logging.getLogger(__name__)
 
+def _get_int_env(name: str, default: int, min_value: int | None = None, max_value: int | None = None) -> int:
+    raw = os.getenv(name)
+    if raw is None or raw == "":
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        logger.error("Invalid %s: %s; using default %s", name, raw, default)
+        return default
+    if min_value is not None and value < min_value:
+        logger.warning("%s below minimum %s; using default %s", name, min_value, default)
+        return default
+    if max_value is not None and value > max_value:
+        logger.warning("%s above maximum %s; using default %s", name, max_value, default)
+        return default
+    return value
+
 # --- ОСНОВНЫЕ НАСТРОЙКИ ---
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 _SUDO_ADMIN_ID_RAW = os.getenv("SUDO_ADMIN_ID")
@@ -196,9 +213,9 @@ def validate_required_settings() -> None:
 
 # --- ЛОГИКА И ЦЕНЫ ---
 # Длительность пробного периода (в днях)
-TRIAL_DAYS = 1
+TRIAL_DAYS = _get_int_env("TRIAL_DAYS", 1, min_value=1)
 # Объем пробного периода (в байтах: 1 ГБ = 1073741824)
-TRIAL_LIMIT_BYTES = 1073741824 
+TRIAL_LIMIT_BYTES = _get_int_env("TRIAL_LIMIT_BYTES", 1073741824, min_value=1)
 
 # --- НАСТРОЙКИ УВЕДОМЛЕНИЙ ---
 SUB_ALERT_WINDOW_SECONDS = int(os.getenv("SUB_ALERT_WINDOW_SECONDS", "3600"))
@@ -206,14 +223,43 @@ SUB_ALERT_DAYS_3 = int(os.getenv("SUB_ALERT_DAYS_3", "3"))
 SUB_ALERT_DAYS_1 = int(os.getenv("SUB_ALERT_DAYS_1", "1"))
 TRAFFIC_ALERT_PERCENT = int(os.getenv("TRAFFIC_ALERT_PERCENT", "90"))
 
+def _load_tariffs() -> Dict[int, int]:
+    raw = os.getenv("TARIFFS_CONFIG")
+    if not raw:
+        return {
+            1: 125,
+            2: 230,
+            3: 320,
+            6: 600,
+            12: 1100,
+        }
+    try:
+        data = json.loads(raw)
+        if isinstance(data, dict) and data:
+            parsed: Dict[int, int] = {}
+            for key, value in data.items():
+                months = int(key)
+                price = int(value)
+                if months <= 0 or price <= 0:
+                    raise ValueError("Tariff months and price must be positive")
+                parsed[months] = price
+            return parsed
+    except (ValueError, TypeError, json.JSONDecodeError) as exc:
+        logger.error("Invalid TARIFFS_CONFIG: %s", exc)
+    return {
+        1: 125,
+        2: 230,
+        3: 320,
+        6: 600,
+        12: 1100,
+    }
+
+
 # Тарифы: key = кол-во месяцев, value = цена в рублях
-TARIFFS = {
-    1: 125,
-    2: 230,
-    3: 320,
-    6: 600,
-    12: 1100
-}
+TARIFFS = _load_tariffs()
 
 # Реферальная система
-REFERRAL_BONUS_PERCENT = 10  # 10% от суммы пополнения реферала
+REFERRAL_BONUS_PERCENT = _get_int_env("REFERRAL_BONUS_PERCENT", 10, min_value=0, max_value=100)  # 10% от суммы пополнения реферала
+
+# --- SCHEDULER ---
+SCHEDULER_INTERVAL_SECONDS = _get_int_env("SCHEDULER_INTERVAL_SECONDS", 3600, min_value=60)

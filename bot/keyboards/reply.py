@@ -7,7 +7,7 @@ def main_menu(user_id: int):
         [KeyboardButton(text="👤 Мой профиль"), KeyboardButton(text="💎 Купить подписку")],
         [KeyboardButton(text="📱 Инструкция"), KeyboardButton(text="🆘 Поддержка")],
         [KeyboardButton(text="🤝 Партнерка")],
-        [KeyboardButton(text="🧠 Blueprint")]
+        [KeyboardButton(text="🧠 План развития")]
     ]
 
     # Кнопка админа (показываем только администратору)
