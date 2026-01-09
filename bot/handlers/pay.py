@@ -21,6 +21,9 @@ logger = logging.getLogger(__name__)
 
 @pay_router.message(F.text == "💎 Купить подписку")
 async def show_tariffs(message: Message) -> None:
+    variant = await db.get_user_welcome_variant(message.from_user.id)
+    if variant:
+        await db.add_message_event(message.from_user.id, "welcome", variant, "purchase_started")
     await message.answer("🌍 <b>Выберите сервер:</b>", reply_markup=inline.servers_menu(), parse_mode="HTML")
 
 @pay_router.callback_query(F.data == "open_tariffs")

@@ -12,6 +12,7 @@ from keyboards import reply, inline
 from config import TRIAL_DAYS, TRIAL_LIMIT_BYTES
 from utils.misc import generate_qr
 from utils.text import escape_html
+from services import content
 
 user_router = Router()
 logger = logging.getLogger(__name__)
@@ -36,13 +37,9 @@ async def cmd_start(message: Message, command: CommandObject) -> None:
     # БД создаст запись, если юзера нет
     await db.add_user(user_id, username, full_name, referrer_id)
     
-    text = (
-        f"👋 <b>Привет, {escape_html(full_name)}!</b>\n\n"
-        f"🌐 <b>Horizon VPN</b> — это свобода, скорость и анонимность.\n"
-        f"Мы используем протоколы <b>VLESS + Reality</b>, которые невозможно отследить.\n\n"
-        f"👇 <b>Что вы хотите сделать?</b>"
-    )
-    
+    text, variant = await content.get_welcome_message(user_id, escape_html(full_name))
+    await db.add_message_event(user_id, "welcome", variant, "shown")
+
     await message.answer(text, reply_markup=reply.main_menu(user_id), parse_mode="HTML")
 
 # ==========================================

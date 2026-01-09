@@ -5,12 +5,14 @@ from aiogram import Bot
 
 from config import (
     SCHEDULER_INTERVAL_SECONDS,
+    PAYMENT_PENDING_REMINDER_SECONDS,
     SUB_ALERT_DAYS_1,
     SUB_ALERT_DAYS_3,
     SUB_ALERT_WINDOW_SECONDS,
     TRAFFIC_ALERT_PERCENT,
 )
 from database import db
+from services import content
 from services.marzban import marzban_api
 from services.servers import get_server
 from services.alerts import send_alert
@@ -130,11 +132,44 @@ async def check_subscriptions(bot: Bot) -> None:
         except Exception:
             logger.exception("Ошибка при обработке уведомлений пользователя %s", user_id)
 
+async def check_pending_payments(bot: Bot) -> None:
+    now = int(time.time())
+    cutoff = now - PAYMENT_PENDING_REMINDER_SECONDS
+    async with db.get_db() as conn:
+        cursor = await conn.execute(
+            """
+            SELECT order_id, user_id
+            FROM payments
+            WHERE status = 'pending'
+              AND created_at <= ?
+              AND pending_reminder_sent = 0
+            """,
+            (cutoff,),
+        )
+        payments = await cursor.fetchall()
+
+    if not payments:
+        return
+
+    reminder_text = content.get_message("payment_pending_reminder")
+
+    for order_id, user_id in payments:
+        try:
+            await bot.send_message(user_id, reminder_text, parse_mode="HTML")
+            async with db.get_db() as conn:
+                await conn.execute(
+                    "UPDATE payments SET pending_reminder_sent = 1 WHERE order_id = ?",
+                    (order_id,),
+                )
+                await conn.commit()
+        except Exception as exc:
+            logger.warning("Не удалось отправить напоминание об оплате %s пользователю %s: %s", order_id, user_id, exc)
 
 async def scheduler_loop(bot: Bot) -> None:
     while True:
         try:
             await check_subscriptions(bot)
+            await check_pending_payments(bot)
         except Exception:
             logger.exception("Scheduler Error")
         
