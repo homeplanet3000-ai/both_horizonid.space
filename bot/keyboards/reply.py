@@ -6,7 +6,8 @@ def main_menu(user_id: int):
     buttons = [
         [KeyboardButton(text="👤 Мой профиль"), KeyboardButton(text="💎 Купить подписку")],
         [KeyboardButton(text="📱 Инструкция"), KeyboardButton(text="🆘 Поддержка")],
-        [KeyboardButton(text="🤝 Партнерка")]
+        [KeyboardButton(text="🤝 Партнерка")],
+        [KeyboardButton(text="🧠 Blueprint")]
     ]
 
     # Кнопка админа (показываем только администратору)
@@ -18,4 +19,3 @@ def main_menu(user_id: int):
         resize_keyboard=True, # Делает кнопки компактными
         input_field_placeholder="Выберите действие..."
     )
-
