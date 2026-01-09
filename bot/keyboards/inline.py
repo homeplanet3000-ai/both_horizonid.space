@@ -34,9 +34,11 @@ def servers_menu():
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 # --- ПРОФИЛЬ ---
-def profile_menu(sub_active=False):
+def profile_menu(sub_active=False, key_link: str | None = None):
     kb = []
     if sub_active:
+        if key_link:
+            kb.append([InlineKeyboardButton(text="⚡️ Подключиться в один тап", url=key_link)])
         kb.append([InlineKeyboardButton(text="🔄 Продлить подписку", callback_data="open_tariffs")])
         kb.append([InlineKeyboardButton(text="🍏/🤖 Инструкция по подключению", callback_data="instr_main")])
     else:
@@ -59,7 +61,12 @@ def payment_menu(url: str, order_id: str, amount: float, user_balance: float):
 
     # 2. Оплата балансом (если хватает денег)
     if user_balance >= amount:
-        kb.append([InlineKeyboardButton(text=f"💰 Оплатить с баланса ({amount}₽)", callback_data=f"pay_balance_{order_id}")])
+        kb.append([
+            InlineKeyboardButton(
+                text=f"💰 Оплатить бонусами/балансом ({amount}₽)",
+                callback_data=f"pay_balance_{order_id}"
+            )
+        ])
 
     # 3. Кнопка проверки
     kb.append([InlineKeyboardButton(text="✅ Я оплатил", callback_data=f"check_pay_{order_id}")])

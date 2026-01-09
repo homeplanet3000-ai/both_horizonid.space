@@ -96,7 +96,7 @@ async def show_profile(message: Message) -> None:
             f"👤 <b>Личный кабинет</b>\n"
             f"➖➖➖➖➖➖➖➖➖➖\n"
             f"🆔 ID: <code>{user_id}</code>\n"
-            f"💰 Баланс: <b>{balance:.2f} ₽</b>\n"
+            f"💰 Баланс (бонусы): <b>{balance:.2f} ₽</b>\n"
             f"✅ <b>Подписка активна до:</b> {expire_date}\n"
             f"{usage_line}\n"
             f"📦 <b>Подписок:</b> {len(active_subs)}\n"
@@ -113,10 +113,14 @@ async def show_profile(message: Message) -> None:
                 photo=qr_file,
                 caption=text,
                 parse_mode="HTML",
-                reply_markup=inline.profile_menu(sub_active=True)
+                reply_markup=inline.profile_menu(sub_active=True, key_link=key_link)
             )
         else:
-            await message.answer(text, parse_mode="HTML", reply_markup=inline.profile_menu(sub_active=True))
+            await message.answer(
+                text,
+                parse_mode="HTML",
+                reply_markup=inline.profile_menu(sub_active=True, key_link=key_link)
+            )
             
     else:
         # --- ПОДПИСКА НЕ АКТИВНА ---
@@ -124,7 +128,7 @@ async def show_profile(message: Message) -> None:
             f"👤 <b>Личный кабинет</b>\n"
             f"➖➖➖➖➖➖➖➖➖➖\n"
             f"🆔 ID: <code>{user_id}</code>\n"
-            f"💰 Баланс: <b>{balance:.2f} ₽</b>\n"
+            f"💰 Баланс (бонусы): <b>{balance:.2f} ₽</b>\n"
             f"🔴 <b>Статус:</b> Нет активной подписки\n\n"
             f"🎁 Вы можете попробовать <b>бесплатный период</b> или купить подписку."
         )
@@ -201,7 +205,7 @@ async def activate_trial(callback: CallbackQuery) -> None:
         qr_file, 
         caption=text, 
         parse_mode="HTML",
-        reply_markup=inline.profile_menu(sub_active=True)
+        reply_markup=inline.profile_menu(sub_active=True, key_link=key_link)
     )
 
 # ==========================================
