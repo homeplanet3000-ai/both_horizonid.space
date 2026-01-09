@@ -3,7 +3,13 @@ import logging
 import time
 from aiogram import Bot
 
-from config import SUB_ALERT_DAYS_1, SUB_ALERT_DAYS_3, SUB_ALERT_WINDOW_SECONDS, TRAFFIC_ALERT_PERCENT
+from config import (
+    SCHEDULER_INTERVAL_SECONDS,
+    SUB_ALERT_DAYS_1,
+    SUB_ALERT_DAYS_3,
+    SUB_ALERT_WINDOW_SECONDS,
+    TRAFFIC_ALERT_PERCENT,
+)
 from database import db
 from services.marzban import marzban_api
 from services.servers import get_server
@@ -132,5 +138,4 @@ async def scheduler_loop(bot: Bot) -> None:
         except Exception:
             logger.exception("Scheduler Error")
         
-        # Ждем 1 час (3600 секунд)
-        await asyncio.sleep(3600)
+        await asyncio.sleep(SCHEDULER_INTERVAL_SECONDS)

@@ -1,6 +1,8 @@
 import asyncio
 import logging
 
+import aiohttp
+
 from config import (
     CLOUDFLARE_API_TOKEN,
     CLOUDFLARE_DNS_NAME,
