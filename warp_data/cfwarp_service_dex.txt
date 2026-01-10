@@ -1,4 +1,0 @@
-2026-01-05T10:51:01.906Z DEBUG dex::status: Starting API request loop
-2026-01-05T10:55:35.342Z DEBUG dex::status: Starting API request loop
-2026-01-05T10:58:12.444Z DEBUG dex::status: Starting API request loop
-2026-01-05T15:19:14.402Z DEBUG dex::status: Starting API request loop
