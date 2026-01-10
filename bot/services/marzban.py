@@ -107,36 +107,41 @@ class MarzbanAPI:
         base_url: Optional[str] = None,
     ) -> Optional[str]:
         """Создает или обновляет пользователя. data_limit=0 это безлимит."""
+        user_info = await self.ensure_user(user_id, data_limit_bytes=data_limit_bytes, base_url=base_url)
+        return self._extract_link(user_info)
+
+    async def ensure_user(
+        self,
+        user_id: int,
+        data_limit_bytes: int = 0,
+        base_url: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Создает или обновляет пользователя и возвращает актуальные данные."""
         username = f"user_{user_id}"
         proxy_settings = {"flow": VLESS_FLOW} if VLESS_FLOW else None
-        
-        # Данные для создания
+
         payload = {
             "username": username,
             "inbounds": {"vless": ["VLESS_REALITY"]},
             "data_limit": data_limit_bytes,
-            "status": "active"
+            "status": "active",
         }
         if proxy_settings:
             payload["proxies"] = {"vless": proxy_settings}
 
-        # 1. Пробуем создать
         res = await self._request("POST", "user", json=payload, base_url=base_url)
-        
-        # 2. Если уже есть (conflict), обновляем лимиты
+
         if res and res.get("status") == "conflict":
-            # Сбрасываем потребление при обновлении
             update_payload = {"data_limit": data_limit_bytes, "status": "active"}
             if proxy_settings:
                 update_payload["proxies"] = {"vless": proxy_settings}
             if data_limit_bytes == 0:
                 update_payload["used_traffic"] = 0
-            
+
             await self._request("PUT", f"user/{username}", json=update_payload, base_url=base_url)
-            # Запрашиваем актуальные данные для получения ссылок
             res = await self.get_user_info(username, base_url=base_url)
 
-        return self._extract_link(res)
+        return res
 
     async def get_user_info(self, username: str, base_url: Optional[str] = None) -> Optional[Dict[str, Any]]:
         return await self._request("GET", f"user/{username}", base_url=base_url)

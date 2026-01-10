@@ -33,22 +33,47 @@ def servers_menu():
     buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="close")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
+# --- ПОДПИСКИ ПО ЛОКАЦИЯМ ---
+def subscriptions_menu():
+    buttons = []
+    for server in get_servers():
+        name = server.get("name", "Сервер")
+        flag = server.get("flag", "🌍")
+        status = status_emoji(server.get("status"))
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"{flag} {name} {status}",
+                callback_data=f"sub_select_{server['id']}"
+            )
+        ])
+    buttons.append([InlineKeyboardButton(text="⬅️ Закрыть", callback_data="close")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
 # --- ПРОФИЛЬ ---
 def profile_menu(sub_active=False, key_link: str | None = None):
     kb = []
     if sub_active:
         if key_link:
             kb.append([InlineKeyboardButton(text="⚡️ Подключиться в один тап", url=key_link)])
+        kb.append([InlineKeyboardButton(text="📍 Подписка по локации", callback_data="open_subscriptions")])
         kb.append([InlineKeyboardButton(text="🔄 Продлить подписку", callback_data="open_tariffs")])
         kb.append([InlineKeyboardButton(text="🍏/🤖 Инструкция по подключению", callback_data="instr_main")])
     else:
         kb.append([InlineKeyboardButton(text="💎 Купить подписку", callback_data="open_tariffs")])
         kb.append([InlineKeyboardButton(text="🎁 Попробовать бесплатно", callback_data="get_trial")])
+        kb.append([InlineKeyboardButton(text="📍 Подписка по локации", callback_data="open_subscriptions")])
 
     # Кнопка рефералки внутри профиля
     kb.append([InlineKeyboardButton(text="🤝 Пригласить друга", callback_data="referral_info")])
     kb.append([InlineKeyboardButton(text="⬅️ Закрыть", callback_data="close")])
 
+    return InlineKeyboardMarkup(inline_keyboard=kb)
+
+def subscription_link_menu(subscription_url: str):
+    kb = [
+        [InlineKeyboardButton(text="🔗 Открыть ссылку подписки", url=subscription_url)],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="open_subscriptions")],
+    ]
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
 # --- ОПЛАТА ---
