@@ -1,0 +1,115 @@
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from config import TARIFFS
+from services.servers import get_servers, status_emoji
+
+# --- ТАРИФЫ ---
+def tariffs_menu(server_id: str = "default"):
+    # Генерация кнопок на основе настроек в config.py
+    # Это решает пункт плана №4 (легкое редактирование цен)
+    buttons = []
+    for months, price in TARIFFS.items():
+        # Формируем текст: "📅 1 Месяц — 125₽"
+        text = f"📅 {months} {'Месяц' if months == 1 else 'Месяца' if months < 5 else 'Месяцев'} — {price}₽"
+        buttons.append([InlineKeyboardButton(text=text, callback_data=f"buy_sub_{months}_{server_id}")])
+
+    buttons.append([InlineKeyboardButton(text="📜 Правила и Оферта", callback_data="rules")])
+    buttons.append([InlineKeyboardButton(text="⬅️ Закрыть", callback_data="close")])
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+# --- СЕРВЕРА ---
+def servers_menu():
+    buttons = []
+    for server in get_servers():
+        name = server.get("name", "Сервер")
+        flag = server.get("flag", "🌍")
+        status = status_emoji(server.get("status"))
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"{flag} {name} {status}",
+                callback_data=f"select_server_{server['id']}"
+            )
+        ])
+    buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="close")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+# --- ПОДПИСКИ ПО ЛОКАЦИЯМ ---
+def subscriptions_menu():
+    buttons = []
+    for server in get_servers():
+        name = server.get("name", "Сервер")
+        flag = server.get("flag", "🌍")
+        status = status_emoji(server.get("status"))
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"{flag} {name} {status}",
+                callback_data=f"sub_select_{server['id']}"
+            )
+        ])
+    buttons.append([InlineKeyboardButton(text="⬅️ Закрыть", callback_data="close")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+# --- ПРОФИЛЬ ---
+def profile_menu(sub_active=False, key_link: str | None = None):
+    kb = []
+    if sub_active:
+        if key_link:
+            kb.append([InlineKeyboardButton(text="⚡️ Подключиться в один тап", url=key_link)])
+        kb.append([InlineKeyboardButton(text="📍 Подписка по локации", callback_data="open_subscriptions")])
+        kb.append([InlineKeyboardButton(text="🔄 Продлить подписку", callback_data="open_tariffs")])
+        kb.append([InlineKeyboardButton(text="🍏/🤖 Инструкция по подключению", callback_data="instr_main")])
+    else:
+        kb.append([InlineKeyboardButton(text="💎 Купить подписку", callback_data="open_tariffs")])
+        kb.append([InlineKeyboardButton(text="🎁 Попробовать бесплатно", callback_data="get_trial")])
+        kb.append([InlineKeyboardButton(text="📍 Подписка по локации", callback_data="open_subscriptions")])
+
+    # Кнопка рефералки внутри профиля
+    kb.append([InlineKeyboardButton(text="🤝 Пригласить друга", callback_data="referral_info")])
+    kb.append([InlineKeyboardButton(text="⬅️ Закрыть", callback_data="close")])
+
+    return InlineKeyboardMarkup(inline_keyboard=kb)
+
+def subscription_link_menu(subscription_url: str):
+    kb = [
+        [InlineKeyboardButton(text="🔗 Открыть ссылку подписки", url=subscription_url)],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="open_subscriptions")],
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=kb)
+
+# --- ОПЛАТА ---
+def payment_menu(url: str, order_id: str, amount: float, user_balance: float):
+    kb = []
+
+    # 1. Ссылка на кассу
+    kb.append([InlineKeyboardButton(text="💳 Оплатить картой/криптой", url=url)])
+    kb.append([InlineKeyboardButton(text="⭐ Оплатить звездами Telegram (скоро)", callback_data=f"pay_stars_{order_id}")])
+
+    # 2. Оплата балансом (если хватает денег)
+    if user_balance >= amount:
+        kb.append([
+            InlineKeyboardButton(
+                text=f"💰 Оплатить бонусами/балансом ({amount}₽)",
+                callback_data=f"pay_balance_{order_id}"
+            )
+        ])
+
+    # 3. Кнопка проверки
+    kb.append([InlineKeyboardButton(text="✅ Я оплатил", callback_data=f"check_pay_{order_id}")])
+    kb.append([InlineKeyboardButton(text="❌ Отмена", callback_data="open_tariffs")])
+
+    return InlineKeyboardMarkup(inline_keyboard=kb)
+
+# --- ИНСТРУКЦИИ ---
+def instructions_menu():
+    kb = [
+        [InlineKeyboardButton(text="🍏 iOS (iPhone/iPad)", callback_data="instr_ios")],
+        [InlineKeyboardButton(text="🤖 Android", callback_data="instr_android")],
+        [InlineKeyboardButton(text="💻 Windows", callback_data="instr_win")],
+        [InlineKeyboardButton(text="🍎 macOS", callback_data="instr_mac")],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="close")]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=kb)
+
+# --- КНОПКА НАЗАД (Утилита) ---
+def back_btn(callback_data="close"):
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Закрыть", callback_data=callback_data)]])

@@ -1,0 +1,268 @@
+import json
+import logging
+import os
+from typing import Any, Dict, List
+from dotenv import load_dotenv
+
+# Загружаем переменные окружения
+load_dotenv()
+logger = logging.getLogger(__name__)
+
+def _get_int_env(name: str, default: int, min_value: int | None = None, max_value: int | None = None) -> int:
+    raw = os.getenv(name)
+    if raw is None or raw == "":
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        logger.error("Invalid %s: %s; using default %s", name, raw, default)
+        return default
+    if min_value is not None and value < min_value:
+        logger.warning("%s below minimum %s; using default %s", name, min_value, default)
+        return default
+    if max_value is not None and value > max_value:
+        logger.warning("%s above maximum %s; using default %s", name, max_value, default)
+        return default
+    return value
+
+# --- ОСНОВНЫЕ НАСТРОЙКИ ---
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+_SUDO_ADMIN_ID_RAW = os.getenv("SUDO_ADMIN_ID")
+try:
+    ADMIN_ID = int(_SUDO_ADMIN_ID_RAW) if _SUDO_ADMIN_ID_RAW is not None else 0
+except ValueError:
+    ADMIN_ID = 0
+CHANNEL_LOGS = os.getenv("CHANNEL_LOGS")
+
+# Домен для замены в выдаваемых ссылках
+SUBSCRIPTION_DOMAIN = os.getenv("SUBSCRIPTION_DOMAIN", "vpn.horizonid.space")
+SUBSCRIPTION_BASE_URL = os.getenv("SUBSCRIPTION_BASE_URL", f"https://{SUBSCRIPTION_DOMAIN}/sub")
+
+# --- НАСТРОЙКИ MARZBAN ---
+# Внутренний адрес панели Marzban
+MARZBAN_URL = os.getenv("MARZBAN_URL", "http://127.0.0.1:8000")
+MARZBAN_USERNAME = os.getenv("SUDO_USERNAME")
+MARZBAN_PASSWORD = os.getenv("SUDO_PASSWORD")
+VLESS_FLOW = os.getenv("VLESS_FLOW", "xtls-rprx-vision")
+MARZBAN_TIMEOUT_SECONDS = float(os.getenv("MARZBAN_TIMEOUT_SECONDS", "10"))
+MARZBAN_RETRY_COUNT = int(os.getenv("MARZBAN_RETRY_COUNT", "2"))
+MARZBAN_RETRY_BACKOFF_SECONDS = float(os.getenv("MARZBAN_RETRY_BACKOFF_SECONDS", "1.5"))
+PREFER_MOBILE_VLESS_WS = os.getenv("PREFER_MOBILE_VLESS_WS", "1") == "1"
+
+_DEFAULT_SERVERS = [
+    {
+        "id": "default",
+        "name": "Основной сервер",
+        "flag": "🌍",
+        "marzban_url": MARZBAN_URL,
+        "public_ip": os.getenv("DEFAULT_SERVER_PUBLIC_IP"),
+        "health_check_url": os.getenv("MARZBAN_HEALTHCHECK_URL", f"{MARZBAN_URL}/api/system"),
+        "subscription_base_url": SUBSCRIPTION_BASE_URL,
+    }
+]
+
+def _validate_server_entry(entry: Dict[str, Any], index: int) -> Dict[str, Any]:
+    required_fields = ["id", "name", "marzban_url", "health_check_url"]
+    missing = [field for field in required_fields if not entry.get(field)]
+    if missing:
+        raise ValueError(f"SERVERS_CONFIG[{index}] missing required fields: {', '.join(missing)}")
+    if not isinstance(entry["id"], str) or not entry["id"].strip():
+        raise ValueError(f"SERVERS_CONFIG[{index}] id must be a non-empty string")
+    return entry
+
+def load_servers_config() -> List[Dict[str, Any]]:
+    raw = os.getenv("SERVERS_CONFIG")
+    if not raw:
+        return _DEFAULT_SERVERS
+    try:
+        data = json.loads(raw)
+        if isinstance(data, list) and data:
+            validated = []
+            seen_ids = set()
+            for index, entry in enumerate(data):
+                if not isinstance(entry, dict):
+                    raise ValueError(f"SERVERS_CONFIG[{index}] must be a JSON object")
+                validated_entry = _validate_server_entry(entry, index)
+                if validated_entry["id"] in seen_ids:
+                    raise ValueError(f"SERVERS_CONFIG contains duplicate id: {validated_entry['id']}")
+                seen_ids.add(validated_entry["id"])
+                validated.append(validated_entry)
+            return validated
+    except (json.JSONDecodeError, ValueError) as exc:
+        logger.error("Invalid SERVERS_CONFIG: %s", exc)
+    return _DEFAULT_SERVERS
+
+SERVERS = load_servers_config()
+
+# --- НАСТРОЙКИ ОПЛАТЫ (AAIO) ---
+AAIO_MERCHANT_ID = os.getenv("AAIO_MERCHANT_ID")
+AAIO_SECRET_1 = os.getenv("AAIO_SECRET_1")
+AAIO_SECRET_2 = os.getenv("AAIO_SECRET_2")
+AAIO_API_KEY = os.getenv("AAIO_API_KEY")
+PAYMENT_DEFAULT_EMAIL = os.getenv("PAYMENT_DEFAULT_EMAIL")
+PAYMENT_TIMEOUT_SECONDS = float(os.getenv("PAYMENT_TIMEOUT_SECONDS", "10"))
+PAYMENT_RETRY_COUNT = int(os.getenv("PAYMENT_RETRY_COUNT", "2"))
+PAYMENT_RETRY_BACKOFF_SECONDS = float(os.getenv("PAYMENT_RETRY_BACKOFF_SECONDS", "1.5"))
+
+# --- НАСТРОЙКИ CLOUDFLARE ---
+CLOUDFLARE_API_TOKEN = os.getenv("CLOUDFLARE_API_TOKEN")
+CLOUDFLARE_ZONE_ID = os.getenv("CLOUDFLARE_ZONE_ID")
+CLOUDFLARE_RECORD_ID = os.getenv("CLOUDFLARE_RECORD_ID")
+CLOUDFLARE_DNS_NAME = os.getenv("CLOUDFLARE_DNS_NAME")
+CLOUDFLARE_TIMEOUT_SECONDS = float(os.getenv("CLOUDFLARE_TIMEOUT_SECONDS", "10"))
+CLOUDFLARE_RETRY_COUNT = int(os.getenv("CLOUDFLARE_RETRY_COUNT", "2"))
+CLOUDFLARE_RETRY_BACKOFF_SECONDS = float(os.getenv("CLOUDFLARE_RETRY_BACKOFF_SECONDS", "1.5"))
+
+# --- НАСТРОЙКИ HEALTH CHECK ---
+HEALTHCHECK_INTERVAL_SECONDS = int(os.getenv("HEALTHCHECK_INTERVAL_SECONDS", "300"))
+HEALTHCHECK_TIMEOUT_SECONDS = float(os.getenv("HEALTHCHECK_TIMEOUT_SECONDS", "10"))
+HEALTHCHECK_LATENCY_WARN_MS = int(os.getenv("HEALTHCHECK_LATENCY_WARN_MS", "200"))
+HEALTHCHECK_LATENCY_DOWN_MS = int(os.getenv("HEALTHCHECK_LATENCY_DOWN_MS", "500"))
+
+# --- НАСТРОЙКИ МОНИТОРИНГА ---
+MONITOR_INTERVAL_SECONDS = int(os.getenv("MONITOR_INTERVAL_SECONDS", "60"))
+MONITOR_TIMEOUT_SECONDS = float(os.getenv("MONITOR_TIMEOUT_SECONDS", "5"))
+
+_DEFAULT_MONITOR_TARGETS = [
+    {
+        "id": "marzban",
+        "name": "Marzban API",
+        "url": f"{MARZBAN_URL}/api/system",
+    },
+    {
+        "id": "adguard",
+        "name": "AdGuard Home",
+        "url": "http://127.0.0.1:3000",
+    },
+]
+
+
+def load_monitor_targets() -> List[Dict[str, Any]]:
+    raw = os.getenv("MONITOR_TARGETS")
+    if not raw:
+        return _DEFAULT_MONITOR_TARGETS
+    try:
+        data = json.loads(raw)
+        if isinstance(data, list) and data:
+            validated = []
+            for index, entry in enumerate(data):
+                if not isinstance(entry, dict):
+                    raise ValueError(f"MONITOR_TARGETS[{index}] must be a JSON object")
+                if not entry.get("url"):
+                    raise ValueError(f"MONITOR_TARGETS[{index}] missing url")
+                validated.append(entry)
+            return validated
+    except (json.JSONDecodeError, ValueError) as exc:
+        logger.error("Invalid MONITOR_TARGETS: %s", exc)
+    return _DEFAULT_MONITOR_TARGETS
+
+
+MONITOR_TARGETS = load_monitor_targets()
+
+
+def validate_required_settings() -> None:
+    missing = []
+    invalid = []
+
+    required_vars = [
+        "BOT_TOKEN",
+        "SUDO_ADMIN_ID",
+        "SUDO_USERNAME",
+        "SUDO_PASSWORD",
+        "PAYMENT_DEFAULT_EMAIL",
+    ]
+    payment_vars = [
+        "AAIO_MERCHANT_ID",
+        "AAIO_SECRET_1",
+        "AAIO_SECRET_2",
+        "AAIO_API_KEY",
+    ]
+    cloudflare_vars = [
+        "CLOUDFLARE_API_TOKEN",
+        "CLOUDFLARE_ZONE_ID",
+        "CLOUDFLARE_RECORD_ID",
+        "CLOUDFLARE_DNS_NAME",
+    ]
+
+    for var in required_vars:
+        if not os.getenv(var):
+            missing.append(var)
+
+    missing_payment = [var for var in payment_vars if not os.getenv(var)]
+    missing_cloudflare = [var for var in cloudflare_vars if not os.getenv(var)]
+
+    if _SUDO_ADMIN_ID_RAW:
+        try:
+            admin_id = int(_SUDO_ADMIN_ID_RAW)
+            if admin_id <= 0:
+                invalid.append("SUDO_ADMIN_ID must be a positive integer")
+        except ValueError:
+            invalid.append("SUDO_ADMIN_ID must be a valid integer")
+
+    if missing:
+        logger.error("Missing required environment variables: %s", ", ".join(missing))
+    if missing_payment:
+        logger.warning("Payment environment variables missing: %s", ", ".join(missing_payment))
+    if not PAYMENT_DEFAULT_EMAIL:
+        logger.warning("PAYMENT_DEFAULT_EMAIL is not set; payment link creation may fail")
+    if missing_cloudflare:
+        logger.warning("Cloudflare environment variables missing: %s", ", ".join(missing_cloudflare))
+    if invalid:
+        logger.error("Invalid environment variables: %s", "; ".join(invalid))
+
+    if missing or invalid:
+        raise SystemExit("Required environment variables are missing or invalid.")
+
+# --- ЛОГИКА И ЦЕНЫ ---
+# Длительность пробного периода (в днях)
+TRIAL_DAYS = _get_int_env("TRIAL_DAYS", 1, min_value=1)
+# Объем пробного периода (в байтах: 1 ГБ = 1073741824)
+TRIAL_LIMIT_BYTES = _get_int_env("TRIAL_LIMIT_BYTES", 1073741824, min_value=1)
+
+# --- НАСТРОЙКИ УВЕДОМЛЕНИЙ ---
+SUB_ALERT_WINDOW_SECONDS = int(os.getenv("SUB_ALERT_WINDOW_SECONDS", "3600"))
+SUB_ALERT_DAYS_3 = int(os.getenv("SUB_ALERT_DAYS_3", "3"))
+SUB_ALERT_DAYS_1 = int(os.getenv("SUB_ALERT_DAYS_1", "1"))
+TRAFFIC_ALERT_PERCENT = int(os.getenv("TRAFFIC_ALERT_PERCENT", "90"))
+
+def _load_tariffs() -> Dict[int, int]:
+    raw = os.getenv("TARIFFS_CONFIG")
+    if not raw:
+        return {
+            1: 125,
+            2: 230,
+            3: 320,
+            6: 600,
+            12: 1100,
+        }
+    try:
+        data = json.loads(raw)
+        if isinstance(data, dict) and data:
+            parsed: Dict[int, int] = {}
+            for key, value in data.items():
+                months = int(key)
+                price = int(value)
+                if months <= 0 or price <= 0:
+                    raise ValueError("Tariff months and price must be positive")
+                parsed[months] = price
+            return parsed
+    except (ValueError, TypeError, json.JSONDecodeError) as exc:
+        logger.error("Invalid TARIFFS_CONFIG: %s", exc)
+    return {
+        1: 125,
+        2: 230,
+        3: 320,
+        6: 600,
+        12: 1100,
+    }
+
+
+# Тарифы: key = кол-во месяцев, value = цена в рублях
+TARIFFS = _load_tariffs()
+
+# Реферальная система
+REFERRAL_BONUS_PERCENT = _get_int_env("REFERRAL_BONUS_PERCENT", 10, min_value=0, max_value=100)  # 10% от суммы пополнения реферала
+
+# --- SCHEDULER ---
+SCHEDULER_INTERVAL_SECONDS = _get_int_env("SCHEDULER_INTERVAL_SECONDS", 3600, min_value=60)
+PAYMENT_PENDING_REMINDER_SECONDS = _get_int_env("PAYMENT_PENDING_REMINDER_SECONDS", 900, min_value=60)
