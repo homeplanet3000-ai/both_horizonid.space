@@ -7,7 +7,7 @@ from aiogram.filters import CommandStart, CommandObject
 
 from database import db
 from services.marzban import marzban_api
-from services.servers import get_active_server, get_server
+from services.servers import get_active_server, get_server, get_subscription_url
 from keyboards import reply, inline
 from config import TRIAL_DAYS, TRIAL_LIMIT_BYTES
 from utils.misc import generate_qr
@@ -212,6 +212,80 @@ async def activate_trial(callback: CallbackQuery) -> None:
 @user_router.message(F.text == "📱 Инструкция")
 async def show_instructions_main(message: Message) -> None:
     await message.answer("👇 <b>Выберите ваше устройство:</b>", reply_markup=inline.instructions_menu(), parse_mode="HTML")
+
+@user_router.message(F.text == "📍 Подписка по локации")
+async def show_location_subscriptions(message: Message) -> None:
+    await message.answer(
+        "📍 <b>Выберите локацию, чтобы получить ссылку подписки:</b>",
+        reply_markup=inline.subscriptions_menu(),
+        parse_mode="HTML",
+    )
+
+@user_router.callback_query(F.data == "open_subscriptions")
+async def show_location_subscriptions_cb(callback: CallbackQuery) -> None:
+    if callback.message.photo:
+        await callback.message.delete()
+        await callback.message.answer(
+            "📍 <b>Выберите локацию, чтобы получить ссылку подписки:</b>",
+            reply_markup=inline.subscriptions_menu(),
+            parse_mode="HTML",
+        )
+    else:
+        await callback.message.edit_text(
+            "📍 <b>Выберите локацию, чтобы получить ссылку подписки:</b>",
+            reply_markup=inline.subscriptions_menu(),
+            parse_mode="HTML",
+        )
+
+@user_router.callback_query(F.data.startswith("sub_select_"))
+async def select_location_subscription(callback: CallbackQuery) -> None:
+    server_id = callback.data.split("sub_select_")[1]
+    server = get_server(server_id)
+    if not server:
+        await callback.answer("Сервер не найден", show_alert=True)
+        return
+
+    user_id = callback.from_user.id
+    base_url = server.get("marzban_url")
+    user_info = await marzban_api.ensure_user(user_id, 0, base_url=base_url)
+    if not user_info:
+        await callback.message.edit_text(
+            "⚠️ Не удалось получить подписку. Попробуйте позже или обратитесь в поддержку.",
+            reply_markup=inline.back_btn("open_subscriptions"),
+        )
+        return
+
+    username = f"user_{user_id}"
+    subscription_url = user_info.get("subscription_url") or get_subscription_url(server_id, username)
+    key_link = marzban_api.extract_link(user_info)
+
+    if not subscription_url:
+        await callback.message.edit_text(
+            "⚠️ Не удалось сформировать ссылку подписки. Попробуйте позже.",
+            reply_markup=inline.back_btn("open_subscriptions"),
+        )
+        return
+
+    server_name = f"{server.get('flag', '🌍')} {server.get('name', 'Сервер')}"
+    text = (
+        f"✅ <b>Подписка {server_name}</b>\n\n"
+        f"🔗 <b>Subscription URL:</b>\n"
+        f"<code>{subscription_url}</code>\n"
+    )
+    if key_link:
+        text += (
+            "\n"
+            "🔑 <b>VLESS ключ (fallback):</b>\n"
+            f"<code>{key_link}</code>\n"
+        )
+    text += "\n<i>Нажмите на ссылку, чтобы скопировать.</i>"
+
+    await callback.message.edit_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=inline.subscription_link_menu(subscription_url),
+        disable_web_page_preview=True,
+    )
 
 @user_router.callback_query(F.data == "instr_main")
 async def show_instructions_cb(callback: CallbackQuery) -> None:

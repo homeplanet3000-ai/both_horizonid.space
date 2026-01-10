@@ -9,6 +9,7 @@ from config import (
     HEALTHCHECK_LATENCY_WARN_MS,
     HEALTHCHECK_TIMEOUT_SECONDS,
     SERVERS,
+    SUBSCRIPTION_BASE_URL,
 )
 from services.alerts import send_alert
 from services.failover import update_dns
@@ -60,6 +61,21 @@ def get_active_server() -> Optional[Dict[str, Any]]:
         if server["status"] == STATUS_WARN:
             return server
     return None
+
+
+def get_subscription_url(server_id: str, username: str) -> Optional[str]:
+    server = get_server(server_id)
+    if not server:
+        return None
+    subscription_template = server.get("subscription_url")
+    if subscription_template:
+        return subscription_template.format(username=username)
+    subscription_base = server.get("subscription_base_url") or SUBSCRIPTION_BASE_URL
+    if not subscription_base:
+        return None
+    if subscription_base.endswith("/"):
+        return f"{subscription_base}{username}"
+    return f"{subscription_base}/{username}"
 
 
 async def _check_server(session, server: Dict[str, Any]) -> str:

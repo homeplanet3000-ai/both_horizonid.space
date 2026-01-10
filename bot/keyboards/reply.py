@@ -6,6 +6,7 @@ def main_menu(user_id: int):
     buttons = [
         [KeyboardButton(text="👤 Мой профиль"), KeyboardButton(text="💎 Купить подписку")],
         [KeyboardButton(text="📱 Инструкция"), KeyboardButton(text="🆘 Поддержка")],
+        [KeyboardButton(text="📍 Подписка по локации")],
         [KeyboardButton(text="🤝 Партнерка")],
         [KeyboardButton(text="🧠 План развития")]
     ]

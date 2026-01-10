@@ -36,6 +36,7 @@ CHANNEL_LOGS = os.getenv("CHANNEL_LOGS")
 
 # Домен для замены в выдаваемых ссылках
 SUBSCRIPTION_DOMAIN = os.getenv("SUBSCRIPTION_DOMAIN", "vpn.horizonid.space")
+SUBSCRIPTION_BASE_URL = os.getenv("SUBSCRIPTION_BASE_URL", f"https://{SUBSCRIPTION_DOMAIN}/sub")
 
 # --- НАСТРОЙКИ MARZBAN ---
 # Внутренний адрес панели Marzban
@@ -56,6 +57,7 @@ _DEFAULT_SERVERS = [
         "marzban_url": MARZBAN_URL,
         "public_ip": os.getenv("DEFAULT_SERVER_PUBLIC_IP"),
         "health_check_url": os.getenv("MARZBAN_HEALTHCHECK_URL", f"{MARZBAN_URL}/api/system"),
+        "subscription_base_url": SUBSCRIPTION_BASE_URL,
     }
 ]
 
